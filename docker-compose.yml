@@ -102,7 +102,7 @@ services:
       - "3000:80"
     depends_on:
       producer-api:
-        condition: service_started
+        condition: service_healthy
     networks:
       - app-network
 
