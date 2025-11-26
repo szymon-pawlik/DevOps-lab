@@ -2,6 +2,7 @@ using RabbitMQ.Client;
 using RabbitMQ.Client.Events;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
@@ -48,7 +49,6 @@ services.AddDbContext<JobDbContext>(options =>
     options.UseNpgsql(connectionString));
 var serviceProvider = services.BuildServiceProvider();
 
-logger.LogInformation($"Connecting to RabbitMQ at {rabbitMQHost}:{rabbitMQPort}");
 
 var factory = new ConnectionFactory()
 {
@@ -72,7 +72,6 @@ try
         {
             connection = factory.CreateConnection();
             channel = connection.CreateModel();
-            logger.LogInformation("Successfully connected to RabbitMQ");
             break;
         }
         catch (Exception ex)
@@ -139,7 +138,6 @@ try
                         // Notify via SignalR (through API)
                         try
                         {
-                            logger.LogInformation($"Sending SignalR notification for Processing status: {job.Id}");
                             var response = await httpClient.PostAsJsonAsync("/api/job/notify-update", new
                             {
                                 Id = job.Id.ToString(),
@@ -147,14 +145,11 @@ try
                                 ProcessedText = (string?)null,
                                 ProcessedAt = (DateTime?)null
                             });
-                            logger.LogInformation($"SignalR notification sent for Processing. Status: {response.StatusCode}");
                         }
                         catch (Exception ex)
                         {
                             logger.LogError(ex, $"Failed to send SignalR notification for processing status: {job.Id}");
                         }
-                        
-                        logger.LogInformation($"Processing job {job.Id} (Type: {jobType}, Priority: {job.Priority}): {job.Text}");
                         
                         // Simulate processing work (less delay for high priority)
                         var delay = job.Priority == JobPriority.Critical ? 500 : 
@@ -176,8 +171,8 @@ try
                         }
                         else
                         {
-                            // Process text
-                            processedText = await ProcessJobAsync(job.Text, jobType, translateHttpClient, googleTranslateApiKey, logger);
+                            // Process text with real-time progress updates for all job types
+                            processedText = await ProcessJobAsyncWithProgress(job.Text, jobType, translateHttpClient, googleTranslateApiKey, logger, job.Id, httpClient);
                         }
                         
                         // Update job in database
@@ -194,7 +189,6 @@ try
                         // Notify via SignalR (through API)
                         try
                         {
-                            logger.LogInformation($"Sending SignalR notification for Completed status: {job.Id}");
                             var response = await httpClient.PostAsJsonAsync("/api/job/notify-update", new
                             {
                                 Id = job.Id.ToString(),
@@ -202,14 +196,11 @@ try
                                 ProcessedText = processedText,
                                 ProcessedAt = job.ProcessedAt
                             });
-                            logger.LogInformation($"SignalR notification sent for Completed. Status: {response.StatusCode}");
                         }
                         catch (Exception ex)
                         {
                             logger.LogError(ex, $"Failed to send SignalR notification for completed status: {job.Id}");
                         }
-                        
-                        logger.LogInformation($"Job {job.Id} completed. Processed text: {processedText}");
                     }
                 }
             }
@@ -253,10 +244,8 @@ try
         };
 
         channel.BasicConsume(queue: queueName, autoAck: false, consumer: consumer);
-        logger.LogInformation($"Consumer started for queue: {queueName}");
     }
 
-    logger.LogInformation("Worker service started. Waiting for jobs...");
     
     // Keep the application running until cancellation
     var cancellationTokenSource = new CancellationTokenSource();
@@ -264,7 +253,6 @@ try
     {
         e.Cancel = true;
         cancellationTokenSource.Cancel();
-        logger.LogInformation("Shutting down...");
     };
     
     // Wait for cancellation signal (SIGTERM/SIGINT)
@@ -274,7 +262,6 @@ try
     }
     catch (OperationCanceledException)
     {
-        logger.LogInformation("Shutdown requested");
     }
 }
 catch (Exception ex)
@@ -302,6 +289,121 @@ static async Task<string> ProcessJobAsync(string text, JobType jobType, HttpClie
     };
 }
 
+static async Task<string> ProcessJobAsyncWithProgress(string text, JobType jobType, HttpClient translateClient, string apiKey, ILogger logger, Guid jobId, HttpClient httpClient)
+{
+    if (jobType == JobType.Translate)
+    {
+        return await TranslateTextAsyncWithProgress(text, translateClient, apiKey, logger, jobId, httpClient);
+    }
+    
+    // For other job types, process with real-time progress
+    return await ProcessTextWithProgress(text, jobType, logger, jobId, httpClient);
+}
+
+static async Task<string> ProcessTextWithProgress(string text, JobType jobType, ILogger logger, Guid jobId, HttpClient httpClient)
+{
+    if (string.IsNullOrWhiteSpace(text))
+    {
+        return text;
+    }
+
+    var result = new StringBuilder();
+    var accumulatedText = "";
+
+    switch (jobType)
+    {
+        case JobType.Reverse:
+            // For reverse, process from the end character by character
+            for (int i = text.Length - 1; i >= 0; i--)
+            {
+                var charToAdd = text[i];
+                result.Append(charToAdd);
+                accumulatedText = result.ToString();
+
+                // Send progress update for every character
+                try
+                {
+                    await httpClient.PostAsJsonAsync("/api/job/notify-update", new
+                    {
+                        Id = jobId.ToString(),
+                        Status = (int)JobStatus.Processing,
+                        ProcessedText = accumulatedText + (i > 0 ? "..." : ""),
+                        ProcessedAt = (DateTime?)null
+                    });
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, $"Failed to send progress update for job {jobId}");
+                }
+                
+                // Small delay for typing effect
+                await Task.Delay(30);
+            }
+            return result.ToString();
+
+        case JobType.CountWords:
+            // For count words, show progress by counting words processed so far
+            var words = text.Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+            for (int i = 0; i < words.Length; i++)
+            {
+                var countSoFar = i + 1;
+                accumulatedText = countSoFar.ToString();
+
+                // Send progress update
+                try
+                {
+                    await httpClient.PostAsJsonAsync("/api/job/notify-update", new
+                    {
+                        Id = jobId.ToString(),
+                        Status = (int)JobStatus.Processing,
+                        ProcessedText = accumulatedText + (i < words.Length - 1 ? "..." : ""),
+                        ProcessedAt = (DateTime?)null
+                    });
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, $"Failed to send progress update for job {jobId}");
+                }
+                await Task.Delay(50);
+            }
+            return words.Length.ToString();
+
+        case JobType.Uppercase:
+        case JobType.Lowercase:
+        default:
+            // For uppercase and lowercase, process character by character for typing effect
+            for (int i = 0; i < text.Length; i++)
+            {
+                var charToProcess = text[i];
+                char processedChar = jobType == JobType.Uppercase ? char.ToUpper(charToProcess) : char.ToLower(charToProcess);
+                
+                result.Append(processedChar);
+                accumulatedText = result.ToString();
+
+                // Send progress update for every character
+                try
+                {
+                    await httpClient.PostAsJsonAsync("/api/job/notify-update", new
+                    {
+                        Id = jobId.ToString(),
+                        Status = (int)JobStatus.Processing,
+                        ProcessedText = accumulatedText + (i < text.Length - 1 ? "..." : ""),
+                        ProcessedAt = (DateTime?)null
+                    });
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, $"Failed to send progress update for job {jobId}");
+                }
+
+                // Small delay for typing effect (faster for regular chars, slower for spaces)
+                var delay = char.IsWhiteSpace(charToProcess) ? 50 : 30;
+                await Task.Delay(delay);
+            }
+            return result.ToString();
+    }
+}
+
 static async Task<string> TranslateTextAsync(string text, HttpClient translateClient, string apiKey, ILogger logger)
 {
     if (string.IsNullOrWhiteSpace(text))
@@ -320,6 +422,402 @@ static async Task<string> TranslateTextAsync(string text, HttpClient translateCl
         logger.LogWarning(ex, "Free Google Translate failed, using fallback");
         return TranslateTextFallback(text);
     }
+}
+
+static async Task<string> TranslateTextAsyncWithProgress(string text, HttpClient translateClient, string apiKey, ILogger logger, Guid jobId, HttpClient httpClient)
+{
+    if (string.IsNullOrWhiteSpace(text))
+    {
+        return text;
+    }
+
+    try
+    {
+        // Split text into sentences for progressive translation
+        // First try simple split by sentence endings
+        var sentences = new List<string>();
+        var currentSentence = new StringBuilder();
+        
+        for (int i = 0; i < text.Length; i++)
+        {
+            currentSentence.Append(text[i]);
+            
+            // Check if we hit a sentence ending
+            if (text[i] == '.' || text[i] == '!' || text[i] == '?')
+            {
+                // Check if next char is space or end of text
+                if (i == text.Length - 1 || char.IsWhiteSpace(text[i + 1]))
+                {
+                    var sentence = currentSentence.ToString().Trim();
+                    if (!string.IsNullOrWhiteSpace(sentence))
+                    {
+                        sentences.Add(sentence);
+                    }
+                    currentSentence.Clear();
+                }
+            }
+        }
+        
+        // Add remaining text if any
+        if (currentSentence.Length > 0)
+        {
+            var sentence = currentSentence.ToString().Trim();
+            if (!string.IsNullOrWhiteSpace(sentence))
+            {
+                sentences.Add(sentence);
+            }
+        }
+        
+
+        // If no sentences found, try splitting by paragraphs or commas
+        if (sentences.Count == 0)
+        {
+            // Try splitting by paragraphs first
+            var paragraphs = text.Split(new[] { "\n\n", "\r\n\r\n" }, StringSplitOptions.RemoveEmptyEntries);
+            if (paragraphs.Length > 1)
+            {
+                return await TranslateParagraphsProgressively(paragraphs, translateClient, logger, jobId, httpClient);
+            }
+            
+            // Try splitting by commas for very long text
+            if (text.Length > 500)
+            {
+                var parts = text.Split(new[] { ", " }, StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length > 1)
+                {
+                    return await TranslatePartsProgressively(parts, translateClient, logger, jobId, httpClient, ", ");
+                }
+            }
+            
+            // If still no good split, try splitting by words
+            var words = text.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length > 10)
+            {
+                return await TranslateWordsProgressively(words, translateClient, logger, jobId, httpClient);
+            }
+            
+            // Last resort: translate whole text
+            return await TranslateTextFreeAsync(text, translateClient, logger);
+        }
+
+        var translatedParts = new List<string>();
+        var accumulatedText = "";
+
+        for (int i = 0; i < sentences.Count; i++)
+        {
+            var sentence = sentences[i];
+            if (string.IsNullOrWhiteSpace(sentence)) continue;
+
+            try
+            {
+                string translated;
+                
+                // If sentence is too long (over 5000 chars), split it further
+                if (sentence.Length > 5000)
+                {
+                    var subParts = sentence.Split(new[] { ", ", "; " }, StringSplitOptions.RemoveEmptyEntries);
+                    if (subParts.Length > 1)
+                    {
+                        var subTranslated = await TranslatePartsProgressively(subParts, translateClient, logger, jobId, httpClient, ", ");
+                        translated = subTranslated;
+                    }
+                    else
+                    {
+                        // If still too long, split by words
+                        var words = sentence.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                        translated = await TranslateWordsProgressively(words, translateClient, logger, jobId, httpClient);
+                    }
+                }
+                else
+                {
+                    // Translate sentence normally
+                    translated = await TranslateTextFreeAsync(sentence, translateClient, logger);
+                }
+                
+                // Remove the prefix if it's added by TranslateTextFreeAsync (it adds [Tłumaczone z...] only once)
+                if (i > 0 && translated.StartsWith("[Tłumaczone z"))
+                {
+                    var prefixEnd = translated.IndexOf("] ");
+                    if (prefixEnd > 0)
+                    {
+                        translated = translated.Substring(prefixEnd + 2);
+                    }
+                }
+                
+                translatedParts.Add(translated);
+                
+                // Display translated sentence character by character for typing effect
+                for (int j = 0; j < translated.Length; j++)
+                {
+                    accumulatedText += translated[j];
+                    var suffix = (i < sentences.Count - 1 && j == translated.Length - 1) ? "..." : (j < translated.Length - 1 ? "..." : "");
+
+                    // Send progress update for every character
+                    try
+                    {
+                        await httpClient.PostAsJsonAsync("/api/job/notify-update", new
+                        {
+                            Id = jobId.ToString(),
+                            Status = (int)JobStatus.Processing,
+                            ProcessedText = accumulatedText + suffix,
+                            ProcessedAt = (DateTime?)null
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogWarning(ex, $"Failed to send progress update for job {jobId}");
+                    }
+
+                    // Small delay for typing effect
+                    var delay = char.IsWhiteSpace(translated[j]) ? 50 : 30;
+                    await Task.Delay(delay);
+                }
+                
+                // Add space after sentence if not last
+                if (i < sentences.Count - 1)
+                {
+                    accumulatedText += " ";
+                }
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, $"Failed to translate sentence {i + 1}/{sentences.Count} for job {jobId}, using original. Error: {ex.Message}");
+                translatedParts.Add(sentence);
+                accumulatedText += (accumulatedText.Length > 0 ? " " : "") + sentence;
+                
+                // Continue with next sentence even if this one failed
+                continue;
+            }
+        }
+
+        if (translatedParts.Count == 0)
+        {
+            logger.LogWarning($"No sentences were translated for job {jobId}, falling back to standard translation");
+            return await TranslateTextAsync(text, translateClient, apiKey, logger);
+        }
+
+        var finalResult = string.Join(" ", translatedParts);
+        
+        // Final update to remove "..." if still present
+        try
+        {
+            await httpClient.PostAsJsonAsync("/api/job/notify-update", new
+            {
+                Id = jobId.ToString(),
+                Status = (int)JobStatus.Processing,
+                ProcessedText = finalResult,
+                ProcessedAt = (DateTime?)null
+            });
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, $"Failed to send final progress update for job {jobId}");
+        }
+        
+        return finalResult;
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, $"Progressive translation failed for job {jobId}, using standard translation. Error: {ex.Message}, StackTrace: {ex.StackTrace}");
+        return await TranslateTextAsync(text, translateClient, apiKey, logger);
+    }
+}
+
+static async Task<string> TranslateParagraphsProgressively(string[] paragraphs, HttpClient translateClient, ILogger logger, Guid jobId, HttpClient httpClient)
+{
+    var translatedParts = new List<string>();
+    var accumulatedText = "";
+
+    for (int i = 0; i < paragraphs.Length; i++)
+    {
+        var paragraph = paragraphs[i].Trim();
+        if (string.IsNullOrWhiteSpace(paragraph)) continue;
+
+        try
+        {
+            var translated = await TranslateTextFreeAsync(paragraph, translateClient, logger);
+            
+            // Remove prefix after first paragraph
+            if (i > 0 && translated.StartsWith("[Tłumaczone z"))
+            {
+                var prefixEnd = translated.IndexOf("] ");
+                if (prefixEnd > 0)
+                {
+                    translated = translated.Substring(prefixEnd + 2);
+                }
+            }
+            
+            translatedParts.Add(translated);
+            
+            // Display translated paragraph character by character for typing effect
+            var separator = (accumulatedText.Length > 0 ? "\n\n" : "");
+            accumulatedText += separator;
+            
+            for (int j = 0; j < translated.Length; j++)
+            {
+                accumulatedText += translated[j];
+                var suffix = (i < paragraphs.Length - 1 && j == translated.Length - 1) ? "..." : (j < translated.Length - 1 ? "..." : "");
+
+                // Send progress update for every character
+                try
+                {
+                    await httpClient.PostAsJsonAsync("/api/job/notify-update", new
+                    {
+                        Id = jobId.ToString(),
+                        Status = (int)JobStatus.Processing,
+                        ProcessedText = accumulatedText + suffix,
+                        ProcessedAt = (DateTime?)null
+                    });
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, $"Failed to send progress update for job {jobId}");
+                }
+
+                // Small delay for typing effect
+                var delay = char.IsWhiteSpace(translated[j]) ? 50 : 30;
+                await Task.Delay(delay);
+            }
+            
+            // Add paragraph separator if not last
+            if (i < paragraphs.Length - 1)
+            {
+                accumulatedText += "\n\n";
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, $"Failed to translate paragraph {i + 1}, using original");
+            translatedParts.Add(paragraph);
+            accumulatedText += (accumulatedText.Length > 0 ? "\n\n" : "") + paragraph;
+        }
+    }
+
+    return string.Join("\n\n", translatedParts);
+}
+
+static async Task<string> TranslatePartsProgressively(string[] parts, HttpClient translateClient, ILogger logger, Guid jobId, HttpClient httpClient, string separator)
+{
+    var translatedParts = new List<string>();
+    var accumulatedText = "";
+
+    for (int i = 0; i < parts.Length; i++)
+    {
+        var part = parts[i].Trim();
+        if (string.IsNullOrWhiteSpace(part)) continue;
+
+        try
+        {
+            var translated = await TranslateTextFreeAsync(part, translateClient, logger);
+            
+            // Remove prefix after first part
+            if (i > 0 && translated.StartsWith("[Tłumaczone z"))
+            {
+                var prefixEnd = translated.IndexOf("] ");
+                if (prefixEnd > 0)
+                {
+                    translated = translated.Substring(prefixEnd + 2);
+                }
+            }
+            
+            translatedParts.Add(translated);
+            
+            // Display translated part character by character for typing effect
+            var partSeparator = (accumulatedText.Length > 0 ? separator : "");
+            accumulatedText += partSeparator;
+            
+            for (int j = 0; j < translated.Length; j++)
+            {
+                accumulatedText += translated[j];
+                var suffix = (i < parts.Length - 1 && j == translated.Length - 1) ? "..." : (j < translated.Length - 1 ? "..." : "");
+
+                // Send progress update for every character
+                try
+                {
+                    await httpClient.PostAsJsonAsync("/api/job/notify-update", new
+                    {
+                        Id = jobId.ToString(),
+                        Status = (int)JobStatus.Processing,
+                        ProcessedText = accumulatedText + suffix,
+                        ProcessedAt = (DateTime?)null
+                    });
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, $"Failed to send progress update for job {jobId}");
+                }
+
+                // Small delay for typing effect
+                var delay = char.IsWhiteSpace(translated[j]) ? 50 : 30;
+                await Task.Delay(delay);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, $"Failed to translate part {i + 1}, using original");
+            translatedParts.Add(part);
+            accumulatedText += (accumulatedText.Length > 0 ? separator : "") + part;
+        }
+    }
+
+    return string.Join(separator, translatedParts);
+}
+
+static async Task<string> TranslateWordsProgressively(string[] words, HttpClient translateClient, ILogger logger, Guid jobId, HttpClient httpClient)
+{
+    var translatedParts = new List<string>();
+    var accumulatedText = "";
+    var batchSize = 5; // Translate 5 words at a time
+
+    for (int i = 0; i < words.Length; i += batchSize)
+    {
+        var batch = words.Skip(i).Take(batchSize).ToArray();
+        var batchText = string.Join(" ", batch);
+
+        try
+        {
+            var translated = await TranslateTextFreeAsync(batchText, translateClient, logger);
+            translatedParts.Add(translated);
+            
+            // Display translated batch character by character for typing effect
+            var batchSeparator = (accumulatedText.Length > 0 ? " " : "");
+            accumulatedText += batchSeparator;
+            
+            for (int j = 0; j < translated.Length; j++)
+            {
+                accumulatedText += translated[j];
+                var suffix = (i + batchSize < words.Length && j == translated.Length - 1) ? "..." : (j < translated.Length - 1 ? "..." : "");
+
+                // Send progress update for every character
+                try
+                {
+                    await httpClient.PostAsJsonAsync("/api/job/notify-update", new
+                    {
+                        Id = jobId.ToString(),
+                        Status = (int)JobStatus.Processing,
+                        ProcessedText = accumulatedText + suffix,
+                        ProcessedAt = (DateTime?)null
+                    });
+                }
+                catch (Exception ex)
+                {
+                    logger.LogWarning(ex, $"Failed to send progress update for job {jobId}");
+                }
+
+                // Small delay for typing effect
+                var delay = char.IsWhiteSpace(translated[j]) ? 50 : 30;
+                await Task.Delay(delay);
+            }
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, $"Failed to translate batch {i}, using original");
+            translatedParts.Add(batchText);
+            accumulatedText += (accumulatedText.Length > 0 ? " " : "") + batchText;
+        }
+    }
+
+    return string.Join(" ", translatedParts);
 }
 
 static async Task<string> TranslateTextFreeAsync(string text, HttpClient translateClient, ILogger logger)

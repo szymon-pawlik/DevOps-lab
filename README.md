@@ -1,6 +1,6 @@
-# DevOps-lab - Producer-Consumer System
+# TextFlow
 
-System przetwarzania zadań oparty na wzorcu Producer-Consumer z wykorzystaniem C# .NET, RabbitMQ, Docker, Kubernetes i React.
+System przetwarzania tekstów oparty na wzorcu Producer-Consumer z wykorzystaniem C# .NET, RabbitMQ, Docker, Kubernetes i React.
 
 ## Architektura
 

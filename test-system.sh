@@ -1,7 +1,7 @@
 #!/bin/bash
 
 echo "=========================================="
-echo "Testing Producer-Consumer System"
+echo "Testing TextFlow System"
 echo "=========================================="
 
 API_URL="http://localhost:8080"

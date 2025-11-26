@@ -500,6 +500,11 @@ body {
         color: $error-color;
       }
 
+      &.processing {
+        color: $warning-color;
+        animation: pulse 1.5s ease-in-out infinite;
+      }
+
       .translated-text {
         .untranslated-word {
           color: $error-color;
@@ -513,6 +518,23 @@ body {
           font-size: 0.9em;
         }
       }
+
+      .typing-indicator {
+        display: inline-block;
+        animation: blink 1s infinite;
+        margin-left: 2px;
+        color: $primary-color;
+      }
+    }
+
+    @keyframes blink {
+      0%, 50% { opacity: 1; }
+      51%, 100% { opacity: 0; }
+    }
+    
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.7; }
     }
 
     .job-file-info {

@@ -63,9 +63,7 @@ public class JobController : ControllerBase
     {
         try
         {
-            _logger.LogInformation($"Received job update notification: {notification.Id}, Status: {notification.Status}");
             await _hubContext.Clients.All.SendAsync("JobUpdated", notification);
-            _logger.LogInformation($"SignalR notification sent to clients for job: {notification.Id}");
             return Ok();
         }
         catch (Exception ex)
@@ -204,7 +202,6 @@ public class JobController : ControllerBase
 
             channel.BasicPublish(exchange: "", routingKey: queueName, basicProperties: properties, body: body);
 
-            _logger.LogInformation($"Job created: {job.Id} with type: {jobType}, text: {request.Text}");
 
             // Notify clients via SignalR
             await _hubContext.Clients.All.SendAsync("JobCreated", new

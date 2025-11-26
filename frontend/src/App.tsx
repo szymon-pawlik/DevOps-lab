@@ -42,18 +42,18 @@ interface Statistics {
 type JobType = 'uppercase' | 'lowercase' | 'reverse' | 'countwords' | 'translate';
 
 const JOB_TYPES: { value: number; label: string; type: JobType }[] = [
-  { value: 0, label: 'Uppercase', type: 'uppercase' },
-  { value: 1, label: 'Lowercase', type: 'lowercase' },
-  { value: 2, label: 'Reverse', type: 'reverse' },
-  { value: 3, label: 'Count Words', type: 'countwords' },
-  { value: 4, label: 'Translate', type: 'translate' }
+  { value: 0, label: 'Wielkie litery', type: 'uppercase' },
+  { value: 1, label: 'Małe litery', type: 'lowercase' },
+  { value: 2, label: 'Odwróć', type: 'reverse' },
+  { value: 3, label: 'Policz słowa', type: 'countwords' },
+  { value: 4, label: 'Tłumacz', type: 'translate' }
 ];
 
 const JOB_PRIORITIES: { value: number; label: string; color: string }[] = [
-  { value: 0, label: 'Low', color: '#6c757d' },
-  { value: 1, label: 'Normal', color: '#0d6efd' },
-  { value: 2, label: 'High', color: '#ffc107' },
-  { value: 3, label: 'Critical', color: '#dc3545' }
+  { value: 0, label: 'Niski', color: '#6c757d' },
+  { value: 1, label: 'Normalny', color: '#0d6efd' },
+  { value: 2, label: 'Wysoki', color: '#ffc107' },
+  { value: 3, label: 'Krytyczny', color: '#dc3545' }
 ];
 
 // API URL - use relative path, nginx will proxy to Producer API
@@ -178,9 +178,7 @@ function App() {
   const handleLogout = useCallback(() => {
     // Stop SignalR connection properly
     if (connectionRef.current) {
-      connectionRef.current.stop().then(() => {
-        console.log('SignalR connection stopped');
-      }).catch((err) => {
+      connectionRef.current.stop().catch((err) => {
         console.error('Error stopping SignalR:', err);
       });
       connectionRef.current = null;
@@ -202,7 +200,7 @@ function App() {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 10 * 1024 * 1024) {
-        setError('File size exceeds 10MB limit');
+        setError('Rozmiar pliku przekracza limit 10MB');
         return;
       }
       setSelectedFile(file);
@@ -223,30 +221,28 @@ function App() {
         formData.append('type', jobType.toString());
         formData.append('priority', jobPriority.toString());
 
-        const response = await axios.post(`${API_URL}/api/job/upload`, formData, {
+        await axios.post(`${API_URL}/api/job/upload`, formData, {
           headers: {
             'Content-Type': 'multipart/form-data'
           }
         });
 
-        console.log('File uploaded successfully:', response.data);
         setSelectedFile(null);
       } else {
         // Submit text job
         const jobText = text.trim();
         if (!jobText) {
-          setError('Text or file is required');
+          setError('Wymagany jest tekst lub plik');
           setLoading(false);
           return;
         }
 
-        const response = await axios.post(`${API_URL}/api/job`, {
+        await axios.post(`${API_URL}/api/job`, {
           text: jobText,
           type: jobType,
           priority: jobPriority
         });
 
-        console.log('Job submitted successfully:', response.data);
         setText('');
       }
 
@@ -259,7 +255,7 @@ function App() {
       }, 500);
     } catch (err: any) {
       console.error('Error submitting job:', err);
-      const errorMessage = err.response?.data?.message || err.response?.data || err.message || 'Failed to submit job';
+      const errorMessage = err.response?.data?.message || err.response?.data || err.message || 'Nie udało się utworzyć zadania';
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -282,7 +278,7 @@ function App() {
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
       console.error('Error downloading result:', err);
-      setError('Failed to download result');
+      setError('Nie udało się pobrać wyniku');
     }
   }, []);
 
@@ -312,7 +308,7 @@ function App() {
       window.URL.revokeObjectURL(url);
     } catch (err: any) {
       console.error('Error exporting jobs:', err);
-      setError('Failed to export jobs');
+      setError('Nie udało się wyeksportować zadań');
     }
   }, []);
 
@@ -323,9 +319,7 @@ function App() {
       if (connectionRef.current) {
         const conn = connectionRef.current;
         connectionRef.current = null; // Clear reference first
-        conn.stop().then(() => {
-          console.log('SignalR connection stopped on logout');
-        }).catch((err) => {
+        conn.stop().catch((err) => {
           console.error('Error stopping SignalR on logout:', err);
         });
       }
@@ -337,8 +331,6 @@ function App() {
     // If API_URL is empty, use relative path (works with nginx proxy)
     const hubUrl = API_URL ? `${API_URL}/jobhub` : '/jobhub';
     const token = authService.getToken();
-    
-    console.log('Setting up SignalR connection to:', hubUrl);
     
     const connection = new signalR.HubConnectionBuilder()
       .withUrl(hubUrl, {
@@ -359,7 +351,6 @@ function App() {
 
     connection.on('JobCreated', (job: { id: string; text: string; type?: number; priority?: number; status: number; createdAt: string; hasFile?: boolean; fileName?: string }) => {
       if (!isMounted) return;
-      console.log('JobCreated received:', job);
       if (!job || !job.id) {
         console.error('Invalid job data received:', job);
         return;
@@ -368,7 +359,6 @@ function App() {
         // Check if job already exists
         const exists = prev.find(j => j.id === job.id);
         if (exists) {
-          console.log('Job already exists, skipping:', job.id);
           return prev;
         }
         const newJob: Job = {
@@ -381,7 +371,6 @@ function App() {
           hasFile: job.hasFile || false,
           originalFileName: job.fileName
         };
-        console.log('Adding new job:', newJob);
         return [newJob, ...prev];
       });
       if (isMounted) {
@@ -391,19 +380,16 @@ function App() {
 
     connection.on('JobUpdated', (update: { id: string; status: number; processedText?: string; processedAt?: string }) => {
       if (!isMounted) return;
-      console.log('JobUpdated received:', update);
       if (!update || !update.id) {
         console.error('Invalid update data received:', update);
         return;
       }
       setJobs(prev => {
-        console.log('Updating jobs, current jobs:', prev);
         const updated = prev.map(job => 
           job && job.id === update.id 
             ? { ...job, status: update.status ?? job.status, processedText: update.processedText, processedAt: update.processedAt }
             : job
         ).filter(job => job !== null && job !== undefined);
-        console.log('Updated jobs:', updated);
         return updated;
       });
     });
@@ -412,7 +398,6 @@ function App() {
       .then(() => {
         if (isMounted) {
           setWsConnected(true);
-          console.log('SignalR connected');
         }
       })
       .catch(err => {
@@ -440,9 +425,7 @@ function App() {
       if (connectionRef.current) {
         const conn = connectionRef.current;
         connectionRef.current = null; // Clear reference first to prevent reconnection attempts
-        conn.stop().then(() => {
-          console.log('SignalR connection cleaned up');
-        }).catch((err) => {
+        conn.stop().catch((err) => {
           console.error('Error during SignalR cleanup:', err);
         });
       }
@@ -479,21 +462,21 @@ function App() {
     <div className="app">
       <header className="header">
         <div className="header-content">
-          <h1>Producer-Consumer System</h1>
+          <h1>TextFlow</h1>
           <div className="user-info">
             <span className="username">{user.username}</span>
             {user.role === 'Admin' && <span className="role-badge">Admin</span>}
-            <button onClick={handleLogout} className="logout-btn">Logout</button>
+            <button onClick={handleLogout} className="logout-btn">Wyloguj</button>
           </div>
         </div>
         <div className="status-group">
           <div className={`status ${apiStatus}`}>
             <span className="status-dot"></span>
-            <span>API: {apiStatus === 'online' ? 'Online' : apiStatus === 'offline' ? 'Offline' : 'Checking...'}</span>
+            <span>API: {apiStatus === 'online' ? 'Online' : apiStatus === 'offline' ? 'Offline' : 'Sprawdzanie...'}</span>
           </div>
           <div className={`status ${wsConnected ? 'online' : 'offline'}`}>
             <span className="status-dot"></span>
-            <span>WebSocket: {wsConnected ? 'Connected' : 'Disconnected'}</span>
+            <span>WebSocket: {wsConnected ? 'Połączono' : 'Rozłączono'}</span>
           </div>
         </div>
       </header>
@@ -501,58 +484,58 @@ function App() {
       <main className="main">
         <section className="submit-section">
           <div className="section-header">
-            <h2>Submit New Job</h2>
+            <h2>Utwórz nowe zadanie</h2>
             <div className="action-buttons">
               <button 
                 onClick={() => setShowStatistics(!showStatistics)} 
                 className="btn-secondary"
               >
-                {showStatistics ? 'Hide' : 'Show'} Statistics
+                {showStatistics ? 'Ukryj' : 'Pokaż'} Statystyki
               </button>
               <button 
                 onClick={() => handleExport('csv')} 
                 className="btn-secondary"
                 disabled={jobs.length === 0}
               >
-                Export CSV
+                Eksportuj CSV
               </button>
               <button 
                 onClick={() => handleExport('json')} 
                 className="btn-secondary"
                 disabled={jobs.length === 0}
               >
-                Export JSON
+                Eksportuj JSON
               </button>
             </div>
           </div>
 
           {showStatistics && statistics && (
             <div className="statistics-panel">
-              <h3>Statistics</h3>
+              <h3>Statystyki</h3>
               <div className="stats-grid">
                 <div className="stat-card">
                   <div className="stat-value">{statistics.totalJobs}</div>
-                  <div className="stat-label">Total Jobs</div>
+                  <div className="stat-label">Wszystkie zadania</div>
                 </div>
                 <div className="stat-card">
                   <div className="stat-value">{statistics.completed}</div>
-                  <div className="stat-label">Completed</div>
+                  <div className="stat-label">Ukończone</div>
                 </div>
                 <div className="stat-card">
                   <div className="stat-value">{statistics.pending}</div>
-                  <div className="stat-label">Pending</div>
+                  <div className="stat-label">Oczekujące</div>
                 </div>
                 <div className="stat-card">
                   <div className="stat-value">{statistics.processing}</div>
-                  <div className="stat-label">Processing</div>
+                  <div className="stat-label">Przetwarzane</div>
                 </div>
                 <div className="stat-card">
                   <div className="stat-value">{statistics.failed}</div>
-                  <div className="stat-label">Failed</div>
+                  <div className="stat-label">Nieudane</div>
                 </div>
                 <div className="stat-card">
                   <div className="stat-value">{Math.round(statistics.averageProcessingTimeSeconds)}s</div>
-                  <div className="stat-label">Avg Processing Time</div>
+                  <div className="stat-label">Śr. czas przetwarzania</div>
                 </div>
               </div>
             </div>
@@ -560,7 +543,7 @@ function App() {
 
           <form onSubmit={handleSubmit} className="job-form">
             <div className="form-group">
-              <label htmlFor="job-type">Job Type:</label>
+              <label htmlFor="job-type">Typ zadania:</label>
               <select
                 id="job-type"
                 value={jobType}
@@ -576,7 +559,7 @@ function App() {
               </select>
             </div>
             <div className="form-group">
-              <label htmlFor="job-priority">Priority:</label>
+              <label htmlFor="job-priority">Priorytet:</label>
               <select
                 id="job-priority"
                 value={jobPriority}
@@ -592,7 +575,7 @@ function App() {
               </select>
             </div>
             <div className="form-group">
-              <label htmlFor="file-upload">Upload File (or enter text below):</label>
+              <label htmlFor="file-upload">Prześlij plik (lub wpisz tekst poniżej):</label>
               <input
                 id="file-upload"
                 type="file"
@@ -609,13 +592,13 @@ function App() {
                     onClick={() => setSelectedFile(null)}
                     className="btn-remove-file"
                   >
-                    Remove
+                    Usuń
                   </button>
                 </div>
               )}
             </div>
             <div className="form-group">
-              <label htmlFor="job-text">Text to Process:</label>
+              <label htmlFor="job-text">Tekst do przetworzenia:</label>
               <textarea
                 id="job-text"
                 value={text}
@@ -623,7 +606,7 @@ function App() {
                   setText(e.target.value);
                   setSelectedFile(null); // Clear file when text is entered
                 }}
-                placeholder={`Enter text to process (will be ${JOB_TYPES.find(t => t.value === jobType)?.label.toLowerCase() || 'processed'})...`}
+                placeholder={`Wpisz tekst do przetworzenia (zostanie ${JOB_TYPES.find(t => t.value === jobType)?.label.toLowerCase() || 'przetworzony'})...`}
                 rows={4}
                 disabled={loading || apiStatus === 'offline' || selectedFile !== null}
               />
@@ -633,16 +616,16 @@ function App() {
               disabled={loading || (!text.trim() && !selectedFile) || apiStatus === 'offline'}
               className="submit-btn"
             >
-              {loading ? 'Submitting...' : selectedFile ? 'Upload & Submit' : 'Submit Job'}
+              {loading ? 'Przesyłanie...' : selectedFile ? 'Prześlij plik' : 'Utwórz zadanie'}
             </button>
           </form>
           {error && <div className="error-message">{error}</div>}
         </section>
 
         <section className="jobs-section">
-          <h2>Job History</h2>
+          <h2>Historia zadań</h2>
           {jobs.length === 0 ? (
-            <div className="empty-state">No jobs submitted yet</div>
+            <div className="empty-state">Brak zadań</div>
           ) : (
             <div className="jobs-list">
               {jobs.map((job) => {
@@ -652,7 +635,7 @@ function App() {
                             <div className="job-header">
                               <span className="job-id">{job.id?.substring ? job.id.substring(0, 8) : job.id}...</span>
                               <span className="job-type-badge">
-                                {JOB_TYPES.find(t => t.value === (job.type ?? 0))?.label || 'Unknown'}
+                                {JOB_TYPES.find(t => t.value === (job.type ?? 0))?.label || 'Nieznany'}
                               </span>
                               {job.priority !== undefined && (
                                 <span 
@@ -662,43 +645,51 @@ function App() {
                                     color: 'white'
                                   }}
                                 >
-                                  {JOB_PRIORITIES.find(p => p.value === job.priority)?.label || 'Normal'}
+                                  {JOB_PRIORITIES.find(p => p.value === job.priority)?.label || 'Normalny'}
                                 </span>
                               )}
                               <span className={`job-status status-${job.status}`}>
-                                {job.status === 0 ? 'pending' : job.status === 1 ? 'processing' : job.status === 2 ? 'completed' : 'failed'}
+                                {job.status === 0 ? 'oczekujące' : job.status === 1 ? 'przetwarzanie' : job.status === 2 ? 'ukończone' : 'nieudane'}
                               </span>
                             </div>
                     <div className="job-content">
                       {job.hasFile && job.originalFileName && (
                         <div className="job-file-info">
-                          <strong>File:</strong> {job.originalFileName}
+                          <strong>Plik:</strong> {job.originalFileName}
                           {job.fileSize && ` (${(job.fileSize / 1024).toFixed(2)} KB)`}
                         </div>
                       )}
                       <div className="job-text">
-                        <strong>Original:</strong> {job.text || 'N/A'}
+                        <strong>Oryginał:</strong> {job.text || 'Brak'}
                       </div>
-                      {job.status === 2 && job.processedText && (
-                        <div className="job-result">
-                          <strong>Processed:</strong>{' '}
+                      {(job.status === 1 || job.status === 2) && job.processedText && (
+                        <div className={`job-result ${job.status === 1 ? 'processing' : ''}`}>
+                          <strong>{job.status === 1 ? 'Przetwarzanie...' : 'Przetworzone:'}</strong>{' '}
                           {job.type === 4 ? (
                             <span className="translated-text">
                               {formatTranslatedText(job.processedText)}
+                              {job.status === 1 && job.processedText.endsWith('...') && (
+                                <span className="typing-indicator">▋</span>
+                              )}
                             </span>
                           ) : (
-                            job.processedText
+                            <>
+                              {job.processedText}
+                              {job.status === 1 && job.processedText.endsWith('...') && (
+                                <span className="typing-indicator">▋</span>
+                              )}
+                            </>
                           )}
                         </div>
                       )}
                       {job.status === 3 && (
                         <div className="job-result error">
-                          <strong>Error:</strong> Job processing failed
+                          <strong>Błąd:</strong> Przetwarzanie zadania nie powiodło się
                         </div>
                       )}
                       <div className="job-time">
-                        {job.createdAt ? new Date(job.createdAt).toLocaleString() : 'N/A'}
-                        {job.processedAt && ` • Processed: ${new Date(job.processedAt).toLocaleString()}`}
+                        {job.createdAt ? new Date(job.createdAt).toLocaleString('pl-PL') : 'Brak'}
+                        {job.processedAt && ` • Przetworzone: ${new Date(job.processedAt).toLocaleString('pl-PL')}`}
                       </div>
                       {job.status === 2 && (job.hasProcessedFile || job.processedText) && (
                         <div className="job-actions">
@@ -706,7 +697,7 @@ function App() {
                             onClick={() => handleDownload(job.id)}
                             className="btn-download"
                           >
-                            Download Result
+                            Pobierz wynik
                           </button>
                         </div>
                       )}

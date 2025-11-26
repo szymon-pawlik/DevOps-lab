@@ -29,18 +29,14 @@ export default function Login({ onLogin }: LoginProps) {
         ? { username, password }
         : { username, email, password };
 
-      console.log(`Attempting ${isLogin ? 'login' : 'register'} for user:`, username);
       const response = await axios.post(`${API_URL}${endpoint}`, data);
-      
-      console.log('Auth response:', response.data);
-      console.log('User role:', response.data.user?.role);
       
       authService.setAuth(response.data.token, response.data.user);
       onLogin(response.data.user);
     } catch (err: any) {
       console.error('Auth error:', err);
       console.error('Error response:', err.response?.data);
-      const errorMessage = err.response?.data?.message || err.response?.data || err.message || 'Authentication failed';
+      const errorMessage = err.response?.data?.message || err.response?.data || err.message || 'Uwierzytelnianie nie powiodło się';
       setError(errorMessage);
     } finally {
       setLoading(false);
@@ -50,12 +46,12 @@ export default function Login({ onLogin }: LoginProps) {
   return (
     <div className="login-container">
       <div className="login-card">
-        <h1>Producer-Consumer System</h1>
-        <h2>{isLogin ? 'Login' : 'Register'}</h2>
+        <h1>TextFlow</h1>
+        <h2>{isLogin ? 'Logowanie' : 'Rejestracja'}</h2>
         
         <form onSubmit={handleSubmit} className="login-form">
           <div className="form-group">
-            <label htmlFor="username">Username:</label>
+            <label htmlFor="username">Nazwa użytkownika:</label>
             <input
               id="username"
               type="text"
@@ -68,7 +64,7 @@ export default function Login({ onLogin }: LoginProps) {
 
           {!isLogin && (
             <div className="form-group">
-              <label htmlFor="email">Email:</label>
+              <label htmlFor="email">E-mail:</label>
               <input
                 id="email"
                 type="email"
@@ -81,7 +77,7 @@ export default function Login({ onLogin }: LoginProps) {
           )}
 
           <div className="form-group">
-            <label htmlFor="password">Password:</label>
+            <label htmlFor="password">Hasło:</label>
             <input
               id="password"
               type="password"
@@ -95,7 +91,7 @@ export default function Login({ onLogin }: LoginProps) {
           {error && <div className="error-message">{error}</div>}
 
           <button type="submit" disabled={loading} className="submit-btn">
-            {loading ? 'Please wait...' : (isLogin ? 'Login' : 'Register')}
+            {loading ? 'Proszę czekać...' : (isLogin ? 'Zaloguj' : 'Zarejestruj')}
           </button>
         </form>
 
@@ -108,7 +104,7 @@ export default function Login({ onLogin }: LoginProps) {
             }}
             className="link-btn"
           >
-            {isLogin ? "Don't have an account? Register" : "Already have an account? Login"}
+            {isLogin ? "Nie masz konta? Zarejestruj się" : "Masz już konto? Zaloguj się"}
           </button>
         </div>
       </div>
