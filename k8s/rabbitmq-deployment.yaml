@@ -24,9 +24,15 @@ spec:
           name: management
         env:
         - name: RABBITMQ_DEFAULT_USER
-          value: "guest"
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: RABBITMQ_USERNAME
         - name: RABBITMQ_DEFAULT_PASS
-          value: "guest"
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: rabbitmq-password
         resources:
           requests:
             memory: "256Mi"

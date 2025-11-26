@@ -22,18 +22,48 @@ spec:
         - containerPort: 8080
           name: http
         env:
+        # ConfigMap values
         - name: ASPNETCORE_ENVIRONMENT
-          value: "Production"
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: ASPNETCORE_ENVIRONMENT
         - name: ASPNETCORE_URLS
-          value: "http://+:8080"
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: ASPNETCORE_URLS
         - name: RabbitMQ__Host
-          value: "rabbitmq"
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: RABBITMQ_HOST
         - name: RabbitMQ__Port
-          value: "5672"
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: RABBITMQ_PORT
         - name: RabbitMQ__Username
-          value: "guest"
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: RABBITMQ_USERNAME
+        # Secret values
         - name: RabbitMQ__Password
-          value: "guest"
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: rabbitmq-password
+        - name: ConnectionStrings__DefaultConnection
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: connection-string
+        - name: JWT__SecretKey
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: jwt-secret
         resources:
           requests:
             memory: "128Mi"

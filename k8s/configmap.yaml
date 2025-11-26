@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  labels:
+    app: devops-lab
+data:
+  # RabbitMQ Configuration
+  RABBITMQ_HOST: "rabbitmq"
+  RABBITMQ_PORT: "5672"
+  RABBITMQ_USERNAME: "guest"
+  
+  # PostgreSQL Configuration
+  POSTGRES_HOST: "postgres"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "jobdb"
+  POSTGRES_USER: "postgres"
+  
+  # API Configuration
+  API_URL: "http://producer-api:8080"
+  ASPNETCORE_ENVIRONMENT: "Production"
+  ASPNETCORE_URLS: "http://+:8080"
+  
+  # Connection String Template (will be completed with secret)
+  CONNECTION_STRING_TEMPLATE: "Host={POSTGRES_HOST};Port={POSTGRES_PORT};Database={POSTGRES_DB};Username={POSTGRES_USER};Password={POSTGRES_PASSWORD}"
+

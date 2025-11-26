@@ -19,14 +19,38 @@ spec:
         image: worker-service:latest
         imagePullPolicy: Never
         env:
+        # ConfigMap values
         - name: RabbitMQ__Host
-          value: "rabbitmq"
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: RABBITMQ_HOST
         - name: RabbitMQ__Port
-          value: "5672"
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: RABBITMQ_PORT
         - name: RabbitMQ__Username
-          value: "guest"
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: RABBITMQ_USERNAME
+        # Secret values
         - name: RabbitMQ__Password
-          value: "guest"
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: rabbitmq-password
+        - name: ConnectionStrings__DefaultConnection
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: connection-string
+        - name: ApiUrl
+          valueFrom:
+            configMapKeyRef:
+              name: app-config
+              key: API_URL
         resources:
           requests:
             memory: "128Mi"
