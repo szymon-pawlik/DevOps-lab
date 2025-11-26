@@ -262,45 +262,11 @@ Skrypt sprawdza:
 2. **Lowercase** - konwertuje tekst na małe litery
 3. **Reverse** - odwraca kolejność znaków
 4. **Count Words** - liczy słowa w tekście
-5. **Translate** - tłumaczy EN↔PL używając Google Translate API (lub fallback słownika jeśli API key nie jest skonfigurowany)
+5. **Translate** - tłumaczy EN↔PL używając Google Translate
 
-### Konfiguracja Google Translate
+### Tłumaczenie
 
-**DARMOWE TŁUMACZENIE:** System używa darmowego Google Translate (przez `translate.googleapis.com`) - podobnie jak biblioteka [@vitalets/google-translate-api](https://github.com/vitalets/google-translate-api). **Nie wymaga API key i działa za darmo!**
-
-**Jak to działa:**
-- System automatycznie używa darmowego endpointu Google Translate
-- Wykrywa język źródłowy (EN/PL) i tłumaczy w drugą stronę
-- Jeśli darmowe API nie działa (np. rate limit), używa fallback translation (słownik EN↔PL)
-
-**Opcjonalnie - Płatne Google Translate API:**
-Jeśli chcesz używać oficjalnego płatnego API (20 USD za milion znaków):
-
-1. **Uzyskaj API Key:**
-   - Przejdź do [Google Cloud Console](https://console.cloud.google.com/)
-   - Utwórz projekt lub wybierz istniejący
-   - Włącz Google Cloud Translation API
-   - Utwórz API Key w sekcji "Credentials"
-   - **Uwaga:** Wymagane są dane rozliczeniowe (karta kredytowa)
-
-2. **Dla Docker Compose:**
-   - Dodaj do `WorkerService/appsettings.json`:
-     ```json
-     "GoogleTranslate": {
-       "ApiKey": "YOUR_API_KEY_HERE"
-     }
-     ```
-
-3. **Dla Kubernetes:**
-   - Zakoduj API key w base64: `echo -n "YOUR_API_KEY" | base64`
-   - Dodaj do `k8s/secret.yaml` w sekcji `data`:
-     ```yaml
-     google-translate-api-key: "BASE64_ENCODED_API_KEY"
-     ```
-   - Zastosuj: `kubectl apply -f k8s/secret.yaml`
-   - Zrestartuj Worker Service: `kubectl rollout restart deployment/worker-service`
-
-**Domyślnie:** System używa darmowego Google Translate bez żadnej konfiguracji. Fallback translation (słownik) jest używany tylko w przypadku błędów.
+System używa Google Translate do tłumaczenia tekstów między językami angielskim i polskim. Tłumaczenie działa automatycznie - system wykrywa język źródłowy i tłumaczy tekst w odpowiednią stronę.
 
 ## Rozwiązywanie problemów
 
