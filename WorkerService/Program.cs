@@ -103,8 +103,25 @@ try
     channel.BasicConsume(queue: queueName, autoAck: false, consumer: consumer);
 
     logger.LogInformation("Worker service started. Waiting for jobs...");
-    logger.LogInformation("Press [enter] to exit.");
-    Console.ReadLine();
+    
+    // Keep the application running until cancellation
+    var cancellationTokenSource = new CancellationTokenSource();
+    Console.CancelKeyPress += (sender, e) =>
+    {
+        e.Cancel = true;
+        cancellationTokenSource.Cancel();
+        logger.LogInformation("Shutting down...");
+    };
+    
+    // Wait for cancellation signal (SIGTERM/SIGINT)
+    try
+    {
+        await Task.Delay(Timeout.Infinite, cancellationTokenSource.Token);
+    }
+    catch (OperationCanceledException)
+    {
+        logger.LogInformation("Shutdown requested");
+    }
 }
 catch (Exception ex)
 {

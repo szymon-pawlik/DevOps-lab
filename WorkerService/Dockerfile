@@ -19,5 +19,7 @@ RUN dotnet publish -c Release -o /app/publish
 FROM mcr.microsoft.com/dotnet/runtime:8.0 AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
+# Copy appsettings.json from build stage if not already in publish
+COPY --from=build /src/WorkerService/appsettings.json ./appsettings.json
 ENTRYPOINT ["dotnet", "WorkerService.dll"]
 
