@@ -44,17 +44,22 @@ public class AuthController : ControllerBase
             return BadRequest("Email already exists");
         }
 
+        var passwordHash = BCrypt.Net.BCrypt.HashPassword(request.Password, BCrypt.Net.BCrypt.GenerateSalt(12));
+        _logger.LogInformation($"Registering user: {request.Username}, PasswordHash length: {passwordHash.Length}, Hash: {passwordHash.Substring(0, Math.Min(20, passwordHash.Length))}...");
+
         var user = new User
         {
             Username = request.Username,
             Email = request.Email,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password),
+            PasswordHash = passwordHash,
             Role = UserRole.User,
             CreatedAt = DateTime.UtcNow
         };
 
         _dbContext.Users.Add(user);
         await _dbContext.SaveChangesAsync();
+
+        _logger.LogInformation($"User registered successfully: {user.Username}, Role: {user.Role}, Id: {user.Id}");
 
         var token = GenerateJwtToken(user);
 
@@ -79,11 +84,36 @@ public class AuthController : ControllerBase
             return BadRequest("Username and password are required");
         }
 
+        _logger.LogInformation($"Login attempt for username: {request.Username}");
+        
         var user = await _dbContext.Users.FirstOrDefaultAsync(u => u.Username == request.Username);
-        if (user == null || !BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash))
+        
+        if (user == null)
         {
+            _logger.LogWarning($"User not found: {request.Username}");
             return Unauthorized("Invalid username or password");
         }
+
+        _logger.LogInformation($"User found: {user.Username}, Role: {user.Role}, PasswordHash length: {user.PasswordHash?.Length ?? 0}, Hash preview: {user.PasswordHash?.Substring(0, Math.Min(20, user.PasswordHash?.Length ?? 0))}...");
+        
+        try
+        {
+            var passwordValid = BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash, false);
+            _logger.LogInformation($"Password verification result: {passwordValid}");
+            
+            if (!passwordValid)
+            {
+                _logger.LogWarning($"Invalid password for user: {request.Username}");
+                return Unauthorized("Invalid username or password");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, $"Error verifying password for user: {request.Username}");
+            return Unauthorized("Invalid username or password");
+        }
+
+        _logger.LogInformation($"Login successful for user: {user.Username}, Role: {user.Role}");
 
         var token = GenerateJwtToken(user);
 

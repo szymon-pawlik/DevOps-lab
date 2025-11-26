@@ -28,12 +28,19 @@ export default function Login({ onLogin }: LoginProps) {
         ? { username, password }
         : { username, email, password };
 
+      console.log(`Attempting ${isLogin ? 'login' : 'register'} for user:`, username);
       const response = await axios.post(`${API_URL}${endpoint}`, data);
+      
+      console.log('Auth response:', response.data);
+      console.log('User role:', response.data.user?.role);
       
       authService.setAuth(response.data.token, response.data.user);
       onLogin(response.data.user);
     } catch (err: any) {
-      setError(err.response?.data?.message || err.message || 'Authentication failed');
+      console.error('Auth error:', err);
+      console.error('Error response:', err.response?.data);
+      const errorMessage = err.response?.data?.message || err.response?.data || err.message || 'Authentication failed';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
