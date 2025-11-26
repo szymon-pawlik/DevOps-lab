@@ -2,7 +2,7 @@
 
 System przetwarzania zadań oparty na wzorcu Producer-Consumer z wykorzystaniem C# .NET, RabbitMQ, Docker, Kubernetes i React.
 
-## 🏗️ Architektura
+## Architektura
 
 - **Producer API** (C# .NET Web API) - przyjmuje zadania i wysyła je do kolejki
 - **Worker Service** (C# .NET Console App) - przetwarza zadania z kolejki
@@ -11,14 +11,14 @@ System przetwarzania zadań oparty na wzorcu Producer-Consumer z wykorzystaniem 
 - **Frontend** (React + TypeScript + Vite + SASS) - interfejs użytkownika
 - **SignalR** - komunikacja WebSocket w czasie rzeczywistym
 
-## 📋 Wymagania wstępne
+## Wymagania wstępne
 
 - Docker i Docker Compose
 - .NET 8.0 SDK (opcjonalnie, do lokalnego rozwoju)
 - Node.js 20+ (opcjonalnie, do lokalnego rozwoju frontendu)
 - Minikube i kubectl (dla Kubernetes)
 
-## 🚀 Szybki start z Docker Compose
+## Szybki start z Docker Compose
 
 ### 1. Sklonuj repozytorium
 
@@ -66,7 +66,7 @@ Aby usunąć również dane (baza danych):
 docker compose down -v
 ```
 
-## ☸️ Uruchomienie w Kubernetes (Minikube)
+## Uruchomienie w Kubernetes (Minikube)
 
 ### 1. Instalacja Minikube i kubectl
 
@@ -135,7 +135,7 @@ pkill -f "minikube tunnel"
 kubectl delete -f k8s/
 ```
 
-## 🔧 Rozwój lokalny (bez Docker)
+## Rozwój lokalny (bez Docker)
 
 ### Backend (Producer API)
 
@@ -167,7 +167,7 @@ Frontend będzie dostępny na: http://localhost:5173
 
 **Uwaga**: Wymaga uruchomionych serwisów (RabbitMQ, PostgreSQL, Producer API).
 
-## 📝 Konfiguracja
+## Konfiguracja
 
 ### Zmienne środowiskowe
 
@@ -215,7 +215,7 @@ Frontend będzie dostępny na: http://localhost:5173
 VITE_API_URL=http://localhost:8080
 ```
 
-## 🧪 Testowanie
+## Testowanie
 
 ### Test systemu (Docker Compose)
 
@@ -250,13 +250,13 @@ Skrypt sprawdza:
    - Zobacz wszystkie swoje zadania
    - Admin widzi wszystkie zadania
 
-## 🔐 Uwierzytelnianie
+## Uwierzytelnianie
 
 - **JWT Token** - używany do autoryzacji
 - **Role**: Admin, User
 - **Domyślne konto admin**: `admin` / `Admin123!`
 
-## 📊 Typy zadań
+## Typy zadań
 
 1. **Uppercase** - konwertuje tekst na wielkie litery
 2. **Lowercase** - konwertuje tekst na małe litery
@@ -264,7 +264,7 @@ Skrypt sprawdza:
 4. **Count Words** - liczy słowa w tekście
 5. **Translate** - tłumaczy EN↔PL (słownik podstawowy)
 
-## 🐛 Rozwiązywanie problemów
+## Rozwiązywanie problemów
 
 ### Problem: Kontenery nie startują
 
@@ -327,7 +327,7 @@ pkill -f "minikube tunnel"
 minikube tunnel
 ```
 
-## 📁 Struktura projektu
+## Struktura projektu
 
 ```
 DevOps-lab/
@@ -357,7 +357,7 @@ DevOps-lab/
 └── README.md             # Ten plik
 ```
 
-## 🔄 CI/CD
+## CI/CD
 
 Projekt zawiera GitHub Actions workflows:
 
@@ -366,7 +366,7 @@ Projekt zawiera GitHub Actions workflows:
 
 Workflows uruchamiają się automatycznie przy commit/merge do brancha Master.
 
-## 📚 Dodatkowe informacje
+## Dodatkowe informacje
 
 - **Database**: PostgreSQL 16
 - **Message Broker**: RabbitMQ 3-management
@@ -375,14 +375,14 @@ Workflows uruchamiają się automatycznie przy commit/merge do brancha Master.
 - **Authentication**: JWT
 - **Real-time**: SignalR (Long Polling)
 
-## 🤝 Wsparcie
+## Wsparcie
 
 W przypadku problemów:
 1. Sprawdź logi: `docker compose logs` lub `kubectl logs`
 2. Sprawdź status serwisów: `docker compose ps` lub `kubectl get pods`
 3. Sprawdź dokumentację w `k8s/README_DEPLOY.md`
 
-## 📄 Licencja
+## Licencja
 
 Projekt edukacyjny - DevOps Lab
 
