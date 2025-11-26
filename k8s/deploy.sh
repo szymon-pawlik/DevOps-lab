@@ -93,21 +93,31 @@ echo ""
 echo "⏳ Waiting for LoadBalancer IPs to be assigned..."
 sleep 5
 echo ""
+# Start port-forward for frontend on port 3000 (port 80 requires sudo and may conflict)
+echo "🔌 Starting port-forward for frontend on port 3000..."
+# Kill any existing port-forward for frontend
+pkill -f "kubectl port-forward.*frontend" 2>/dev/null || true
+sleep 1
+# Start port-forward on port 3000 (no sudo needed)
+nohup kubectl port-forward svc/frontend 3000:80 > /tmp/port-forward-frontend.log 2>&1 &
+PORT_FORWARD_PID=$!
+echo $PORT_FORWARD_PID > /tmp/port-forward-frontend.pid
+sleep 2
+echo "✅ Port-forward started (PID: $PORT_FORWARD_PID)"
+echo "   Logs: /tmp/port-forward-frontend.log"
+echo ""
 echo "📊 Service URLs (accessible from Windows host):"
 FRONTEND_IP=$(kubectl get svc frontend -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
 API_IP=$(kubectl get svc producer-api -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
 RABBITMQ_IP=$(kubectl get svc rabbitmq -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "pending")
 
-if [ "$FRONTEND_IP" != "pending" ] && [ -n "$FRONTEND_IP" ]; then
-    echo "  Frontend:        http://$FRONTEND_IP"
-else
-    echo "  Frontend:        http://127.0.0.1 (via tunnel)"
-fi
+echo "  Frontend:        http://127.0.0.1:3000 (via port-forward)"
+echo "                   Note: Use port 3000 instead of 80 to avoid sudo requirement"
 
 if [ "$API_IP" != "pending" ] && [ -n "$API_IP" ]; then
     echo "  Producer API:    http://$API_IP"
 else
-    echo "  Producer API:    http://127.0.0.1 (via tunnel)"
+    echo "  Producer API:    http://127.0.0.1 (internal, proxied via frontend)"
 fi
 
 if [ "$RABBITMQ_IP" != "pending" ] && [ -n "$RABBITMQ_IP" ]; then
@@ -125,7 +135,8 @@ echo ""
 echo "📊 Check services:"
 echo "  kubectl get svc"
 echo ""
-echo "💡 To stop tunnel:"
+echo "💡 To stop services:"
 echo "  pkill -f 'minikube tunnel'"
-echo "  or: kill \$(cat /tmp/minikube-tunnel.pid)"
+echo "  pkill -f 'kubectl port-forward.*frontend'"
+echo "  or: kill \$(cat /tmp/minikube-tunnel.pid) && kill \$(cat /tmp/port-forward-frontend.pid)"
 

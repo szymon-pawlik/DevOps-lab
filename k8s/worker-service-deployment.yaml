@@ -51,6 +51,12 @@ spec:
             configMapKeyRef:
               name: app-config
               key: API_URL
+        - name: GoogleTranslate__ApiKey
+          valueFrom:
+            secretKeyRef:
+              name: app-secrets
+              key: google-translate-api-key
+              optional: true
         resources:
           requests:
             memory: "128Mi"

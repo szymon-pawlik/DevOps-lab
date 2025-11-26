@@ -21,6 +21,9 @@ data:
   ASPNETCORE_ENVIRONMENT: "Production"
   ASPNETCORE_URLS: "http://+:8080"
   
+  # Google Translate API (optional - leave empty to use fallback translation)
+  GOOGLE_TRANSLATE_API_KEY: ""
+  
   # Connection String Template (will be completed with secret)
   CONNECTION_STRING_TEMPLATE: "Host={POSTGRES_HOST};Port={POSTGRES_PORT};Database={POSTGRES_DB};Username={POSTGRES_USER};Password={POSTGRES_PASSWORD}"
 

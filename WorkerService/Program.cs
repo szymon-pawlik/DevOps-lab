@@ -27,11 +27,18 @@ var rabbitMQPassword = configuration["RabbitMQ:Password"] ?? "guest";
 var connectionString = configuration.GetConnectionString("DefaultConnection") 
     ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
 var apiUrl = configuration["ApiUrl"] ?? "http://producer-api:8080";
+var googleTranslateApiKey = configuration["GoogleTranslate:ApiKey"] ?? string.Empty;
 
 // Setup HttpClient for SignalR notifications
 var httpClient = new HttpClient
 {
     BaseAddress = new Uri(apiUrl),
+    Timeout = TimeSpan.FromSeconds(30)
+};
+
+// Setup HttpClient for Google Translate API
+var translateHttpClient = new HttpClient
+{
     Timeout = TimeSpan.FromSeconds(30)
 };
 
@@ -162,7 +169,7 @@ try
                         if (job.FileData != null && !string.IsNullOrEmpty(job.OriginalFileName))
                         {
                             // Process file
-                            var result = ProcessFile(job.FileData, job.OriginalFileName, jobType);
+                            var result = await ProcessFileAsync(job.FileData, job.OriginalFileName, jobType, translateHttpClient, googleTranslateApiKey, logger);
                             processedText = result.Text;
                             processedFileData = result.FileData;
                             processedFileName = result.FileName;
@@ -170,7 +177,7 @@ try
                         else
                         {
                             // Process text
-                            processedText = ProcessJob(job.Text, jobType);
+                            processedText = await ProcessJobAsync(job.Text, jobType, translateHttpClient, googleTranslateApiKey, logger);
                         }
                         
                         // Update job in database
@@ -282,7 +289,7 @@ finally
 }
 
 // Helper methods and classes - must be after top-level statements
-static string ProcessJob(string text, JobType jobType)
+static async Task<string> ProcessJobAsync(string text, JobType jobType, HttpClient translateClient, string apiKey, ILogger logger)
 {
     return jobType switch
     {
@@ -290,15 +297,128 @@ static string ProcessJob(string text, JobType jobType)
         JobType.Lowercase => text.ToLower(),
         JobType.Reverse => new string(text.Reverse().ToArray()),
         JobType.CountWords => text.Split(new[] { ' ', '\t', '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries).Length.ToString(),
-        JobType.Translate => TranslateText(text), // Simple mock translation
+        JobType.Translate => await TranslateTextAsync(text, translateClient, apiKey, logger),
         _ => text
     };
 }
 
-static string TranslateText(string text)
+static async Task<string> TranslateTextAsync(string text, HttpClient translateClient, string apiKey, ILogger logger)
 {
-    // Bidirectional translation dictionary (EN <-> PL)
-    // In a real app, this would call a translation API like Google Translate
+    if (string.IsNullOrWhiteSpace(text))
+    {
+        return text;
+    }
+
+    // Use free Google Translate (translate.google.com) - works without API key
+    // Similar to @vitalets/google-translate-api for Node.js
+    try
+    {
+        return await TranslateTextFreeAsync(text, translateClient, logger);
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Free Google Translate failed, using fallback");
+        return TranslateTextFallback(text);
+    }
+}
+
+static async Task<string> TranslateTextFreeAsync(string text, HttpClient translateClient, ILogger logger)
+{
+    try
+    {
+        // Use free Google Translate (translate.google.com) - no API key needed
+        // This is similar to @vitalets/google-translate-api library
+        var baseUrl = "https://translate.googleapis.com/translate_a/single";
+        
+        // Determine target language - try to detect if text is Polish or English
+        bool likelyPolish = text.Any(c => "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ".Contains(c));
+        string targetLang = likelyPolish ? "en" : "pl";
+        string sourceLang = likelyPolish ? "pl" : "en";
+
+        // Build request URL
+        var url = $"{baseUrl}?client=gtx&sl={sourceLang}&tl={targetLang}&dt=t&q={Uri.EscapeDataString(text)}";
+        
+        var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
+        request.Headers.Add("Accept", "application/json");
+
+        var response = await translateClient.SendAsync(request);
+
+        if (!response.IsSuccessStatusCode)
+        {
+            // If rate limited (429), try with auto-detection
+            if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
+            {
+                logger.LogWarning("Rate limited, trying with auto-detection");
+                url = $"{baseUrl}?client=gtx&sl=auto&tl={targetLang}&dt=t&q={Uri.EscapeDataString(text)}";
+                request = new HttpRequestMessage(HttpMethod.Get, url);
+                request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+                response = await translateClient.SendAsync(request);
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new Exception($"Translation failed: {response.StatusCode}");
+            }
+        }
+
+        var content = await response.Content.ReadAsStringAsync();
+        var json = JsonSerializer.Deserialize<JsonElement>(content);
+        
+        // Extract translated text from response
+        // Response format: [[["translated text",...],...],...]
+        string translatedText = text;
+        try
+        {
+            if (json.ValueKind == JsonValueKind.Array && json.GetArrayLength() > 0)
+            {
+                var firstArray = json[0];
+                if (firstArray.ValueKind == JsonValueKind.Array && firstArray.GetArrayLength() > 0)
+                {
+                    var secondArray = firstArray[0];
+                    if (secondArray.ValueKind == JsonValueKind.Array && secondArray.GetArrayLength() > 0)
+                    {
+                        translatedText = secondArray[0].GetString() ?? text;
+                    }
+                }
+            }
+        }
+        catch (Exception parseEx)
+        {
+            logger.LogWarning(parseEx, "Failed to parse translation response, using original text");
+            translatedText = text;
+        }
+
+        // Try to get detected source language from response
+        try
+        {
+            if (json.ValueKind == JsonValueKind.Array && json.GetArrayLength() > 2)
+            {
+                var detectedLang = json[2].GetString();
+                if (!string.IsNullOrEmpty(detectedLang))
+                {
+                    sourceLang = detectedLang;
+                    targetLang = (detectedLang == "pl") ? "en" : "pl";
+                }
+            }
+        }
+        catch
+        {
+            // Keep original source/target languages
+        }
+
+        return $"[Tłumaczone z {sourceLang.ToUpper()} na {targetLang.ToUpper()}] {translatedText}";
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "Error using free Google Translate");
+        throw; // Re-throw to trigger fallback
+    }
+}
+
+static string TranslateTextFallback(string text)
+{
+    // Fallback: Simple bidirectional translation dictionary (EN <-> PL)
     var enToPl = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
     {
         { "hello", "cześć" },
@@ -383,14 +503,14 @@ static string TranslateText(string text)
     return $"[Tłumaczone z {sourceLang} na {targetLang}] {result}";
 }
 
-static FileProcessResult ProcessFile(byte[] fileData, string fileName, JobType jobType)
+static async Task<FileProcessResult> ProcessFileAsync(byte[] fileData, string fileName, JobType jobType, HttpClient translateClient, string apiKey, ILogger logger)
 {
     // For text files, process the content
     if (fileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) ||
         fileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
     {
         var text = Encoding.UTF8.GetString(fileData);
-        var processedText = ProcessJob(text, jobType);
+        var processedText = await ProcessJobAsync(text, jobType, translateClient, apiKey, logger);
         var processedBytes = Encoding.UTF8.GetBytes(processedText);
         
         return new FileProcessResult
