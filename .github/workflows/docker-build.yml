@@ -2,9 +2,9 @@ name: Docker Build Check
 
 on:
   push:
-    branches: [ master, main ]
+    branches: [ master, main, Master ]
   pull_request:
-    branches: [ master, main ]
+    branches: [ master, main, Master ]
 
 jobs:
   build-docker-images:
