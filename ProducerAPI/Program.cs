@@ -1,0 +1,43 @@
+using RabbitMQ.Client;
+using System.Text;
+using System.Text.Json;
+
+var builder = WebApplication.CreateBuilder(args);
+
+// Add services to the container.
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+// RabbitMQ Connection
+var rabbitMQHost = builder.Configuration["RabbitMQ:Host"] ?? "rabbitmq";
+var rabbitMQPort = builder.Configuration.GetValue<int>("RabbitMQ:Port", 5672);
+var rabbitMQUsername = builder.Configuration["RabbitMQ:Username"] ?? "guest";
+var rabbitMQPassword = builder.Configuration["RabbitMQ:Password"] ?? "guest";
+
+var factory = new ConnectionFactory()
+{
+    HostName = rabbitMQHost,
+    Port = rabbitMQPort,
+    UserName = rabbitMQUsername,
+    Password = rabbitMQPassword
+};
+
+builder.Services.AddSingleton<IConnectionFactory>(factory);
+builder.Services.AddSingleton<IConnection>(sp => sp.GetRequiredService<IConnectionFactory>().CreateConnection());
+
+var app = builder.Build();
+
+// Configure the HTTP request pipeline.
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+
+app.UseHttpsRedirection();
+app.UseAuthorization();
+app.MapControllers();
+
+app.Run();
+

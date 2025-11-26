@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker-service
+  labels:
+    app: worker-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: worker-service
+  template:
+    metadata:
+      labels:
+        app: worker-service
+    spec:
+      containers:
+      - name: worker-service
+        image: worker-service:latest
+        imagePullPolicy: Never
+        env:
+        - name: RabbitMQ__Host
+          value: "rabbitmq"
+        - name: RabbitMQ__Port
+          value: "5672"
+        - name: RabbitMQ__Username
+          value: "guest"
+        - name: RabbitMQ__Password
+          value: "guest"
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "256Mi"
+            cpu: "200m"
+

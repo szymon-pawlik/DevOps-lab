@@ -1,0 +1,44 @@
+name: Docker Build Check
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  build-docker-images:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Build Producer API Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./ProducerAPI/Dockerfile
+        push: false
+        tags: producer-api:test
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build Worker Service Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./WorkerService/Dockerfile
+        push: false
+        tags: worker-service:test
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Verify Docker images
+      run: |
+        docker images | grep -E "(producer-api|worker-service)"
+        echo "Docker images built successfully!"
+

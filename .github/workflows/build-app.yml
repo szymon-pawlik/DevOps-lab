@@ -1,0 +1,51 @@
+name: Build Application
+
+on:
+  push:
+    branches: [ master, main ]
+  pull_request:
+    branches: [ master, main ]
+
+jobs:
+  build-producer-api:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore dependencies - Producer API
+      run: dotnet restore ProducerAPI/ProducerAPI.csproj
+
+    - name: Build Producer API
+      run: dotnet build ProducerAPI/ProducerAPI.csproj --no-restore -c Release
+
+    - name: Test Producer API build
+      run: dotnet publish ProducerAPI/ProducerAPI.csproj -c Release -o ./publish/producer-api
+
+  build-worker-service:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+
+    - name: Restore dependencies - Worker Service
+      run: dotnet restore WorkerService/WorkerService.csproj
+
+    - name: Build Worker Service
+      run: dotnet build WorkerService/WorkerService.csproj --no-restore -c Release
+
+    - name: Test Worker Service build
+      run: dotnet publish WorkerService/WorkerService.csproj -c Release -o ./publish/worker-service
+
