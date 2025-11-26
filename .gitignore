@@ -46,3 +46,11 @@ Thumbs.db
 # Publish
 publish/
 
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+frontend/.vite/
+frontend/*.log
+
