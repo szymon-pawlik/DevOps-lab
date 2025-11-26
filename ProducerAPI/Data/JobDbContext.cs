@@ -10,6 +10,7 @@ public class JobDbContext : DbContext
     }
 
     public DbSet<Job> Jobs { get; set; }
+    public DbSet<User> Users { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -21,6 +22,17 @@ public class JobDbContext : DbContext
             entity.Property(e => e.Status).IsRequired();
             entity.Property(e => e.CreatedAt).IsRequired();
             entity.HasIndex(e => e.CreatedAt);
+            entity.HasOne(j => j.User)
+                .WithMany(u => u.Jobs)
+                .HasForeignKey(j => j.UserId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<User>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => e.Username).IsUnique();
+            entity.HasIndex(e => e.Email).IsUnique();
         });
     }
 }

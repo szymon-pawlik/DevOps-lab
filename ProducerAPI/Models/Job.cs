@@ -8,6 +8,8 @@ public class Job
     public JobStatus Status { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? ProcessedAt { get; set; }
+    public Guid UserId { get; set; }
+    public User? User { get; set; }
 }
 
 public enum JobStatus

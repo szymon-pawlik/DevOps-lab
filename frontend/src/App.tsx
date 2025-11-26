@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import axios from 'axios';
 import * as signalR from '@microsoft/signalr';
+import { authService, type User } from './auth';
+import Login from './Login';
 import './App.scss';
 
 interface Job {
@@ -15,7 +17,28 @@ interface Job {
 // API URL - in browser always use localhost (ports are mapped in docker-compose)
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
 
+// Configure axios to include JWT token
+axios.interceptors.request.use((config) => {
+  const token = authService.getToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+  return config;
+});
+
+axios.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    if (error.response?.status === 401) {
+      authService.clearAuth();
+      window.location.reload();
+    }
+    return Promise.reject(error);
+  }
+);
+
 function App() {
+  const [user, setUser] = useState<User | null>(authService.getUser());
   const [text, setText] = useState('');
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(false);
@@ -24,57 +47,102 @@ function App() {
   const [wsConnected, setWsConnected] = useState(false);
   const connectionRef = useRef<signalR.HubConnection | null>(null);
 
-  const checkApiStatus = async () => {
+  const checkApiStatus = useCallback(async () => {
     try {
       const response = await axios.get(`${API_URL}/api/job/health`);
       setApiStatus(response.status === 200 ? 'online' : 'offline');
     } catch {
       setApiStatus('offline');
     }
-  };
+  }, []);
 
-  const fetchJobs = async () => {
-    try {
-      const response = await axios.get<Job[]>(`${API_URL}/api/job`);
-      setJobs(response.data);
-    } catch (err) {
-      console.error('Failed to fetch jobs:', err);
+  const fetchJobsRef = useRef<(() => Promise<void>) | null>(null);
+  
+  // Update fetchJobs function when user changes
+  useEffect(() => {
+    fetchJobsRef.current = async () => {
+      if (!user) return;
+      try {
+        const response = await axios.get<Job[]>(`${API_URL}/api/job`);
+        setJobs(response.data);
+      } catch (err) {
+        console.error('Failed to fetch jobs:', err);
+      }
+    };
+  }, [user]);
+
+  const handleLogout = useCallback(() => {
+    // Stop SignalR connection
+    if (connectionRef.current) {
+      connectionRef.current.stop().catch(console.error);
+      connectionRef.current = null;
     }
-  };
+    
+    // Clear all state first
+    setJobs([]);
+    setText('');
+    setError(null);
+    setApiStatus('checking');
+    setWsConnected(false);
+    
+    // Clear auth and user last to trigger re-render
+    authService.clearAuth();
+    setUser(null);
+  }, []);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = useCallback(async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!text.trim()) return;
+    const jobText = (e.target as HTMLFormElement).querySelector('textarea')?.value || text;
+    if (!jobText.trim()) return;
 
     setLoading(true);
     setError(null);
 
     try {
-      await axios.post(`${API_URL}/api/job`, {
-        text: text.trim()
+      const token = authService.getToken();
+      console.log('Submitting job with token:', token ? 'Token exists' : 'No token');
+      console.log('Job text:', jobText);
+      
+      const response = await axios.post(`${API_URL}/api/job`, {
+        text: jobText.trim()
       });
 
+      console.log('Job submitted successfully:', response.data);
       setText('');
       // Jobs will be updated via SignalR, but fetch once to be sure
-      setTimeout(fetchJobs, 500);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to submit job');
+      setTimeout(() => {
+        if (fetchJobsRef.current) {
+          fetchJobsRef.current();
+        }
+      }, 500);
+    } catch (err: any) {
+      console.error('Error submitting job:', err);
+      console.error('Error response:', err.response);
+      const errorMessage = err.response?.data?.message || err.response?.data || err.message || 'Failed to submit job';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
-  };
+  }, [text]);
 
   // Setup SignalR connection
   useEffect(() => {
+    if (!user) return;
+
+    let isMounted = true;
     const hubUrl = `${API_URL}/jobhub`;
+    const token = authService.getToken();
     const connection = new signalR.HubConnectionBuilder()
-      .withUrl(hubUrl)
+      .withUrl(hubUrl, {
+        accessTokenFactory: () => token || ''
+      })
       .withAutomaticReconnect()
       .build();
 
     connectionRef.current = connection;
 
     connection.on('JobCreated', (job: { id: string; text: string; status: number; createdAt: string }) => {
+      if (!isMounted) return;
       console.log('JobCreated received:', job);
       if (!job || !job.id) {
         console.error('Invalid job data received:', job);
@@ -99,6 +167,7 @@ function App() {
     });
 
     connection.on('JobUpdated', (update: { id: string; status: number; processedText?: string; processedAt?: string }) => {
+      if (!isMounted) return;
       console.log('JobUpdated received:', update);
       if (!update || !update.id) {
         console.error('Invalid update data received:', update);
@@ -118,43 +187,74 @@ function App() {
 
     connection.start()
       .then(() => {
-        setWsConnected(true);
-        console.log('SignalR connected');
+        if (isMounted) {
+          setWsConnected(true);
+          console.log('SignalR connected');
+        }
       })
       .catch(err => {
-        console.error('SignalR connection error:', err);
-        setWsConnected(false);
+        if (isMounted) {
+          console.error('SignalR connection error:', err);
+          setWsConnected(false);
+        }
       });
 
     connection.onreconnecting(() => {
-      setWsConnected(false);
+      if (isMounted) {
+        setWsConnected(false);
+      }
     });
 
     connection.onreconnected(() => {
-      setWsConnected(true);
+      if (isMounted) {
+        setWsConnected(true);
+      }
     });
 
     return () => {
-      connection.stop();
+      isMounted = false;
+      if (connectionRef.current) {
+        connectionRef.current.stop().catch(console.error);
+        connectionRef.current = null;
+      }
     };
-  }, []);
+  }, [user]);
 
   // Check API status and fetch jobs on mount
   useEffect(() => {
-    checkApiStatus();
-    fetchJobs();
+    if (!user) return;
     
-    const statusInterval = setInterval(checkApiStatus, 30000); // Check every 30s
+    checkApiStatus();
+    if (fetchJobsRef.current) {
+      fetchJobsRef.current();
+    }
+    
+    const statusInterval = setInterval(() => {
+      checkApiStatus();
+    }, 30000); // Check every 30s
     
     return () => {
       clearInterval(statusInterval);
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  // Early return for login screen - MUST be after all hooks
+  if (!user) {
+    return <Login key="login" onLogin={(user) => setUser(user)} />;
+  }
 
   return (
     <div className="app">
       <header className="header">
-        <h1>Producer-Consumer System</h1>
+        <div className="header-content">
+          <h1>Producer-Consumer System</h1>
+          <div className="user-info">
+            <span className="username">{user.username}</span>
+            {user.role === 'Admin' && <span className="role-badge">Admin</span>}
+            <button onClick={handleLogout} className="logout-btn">Logout</button>
+          </div>
+        </div>
         <div className="status-group">
           <div className={`status ${apiStatus}`}>
             <span className="status-dot"></span>

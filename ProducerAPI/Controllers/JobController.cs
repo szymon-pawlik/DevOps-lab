@@ -1,7 +1,9 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using RabbitMQ.Client;
+using System.Security.Claims;
 using System.Text;
 using System.Text.Json;
 using ProducerAPI.Data;
@@ -12,6 +14,7 @@ namespace ProducerAPI.Controllers;
 
 [ApiController]
 [Route("api/[controller]")]
+[Authorize]
 public class JobController : ControllerBase
 {
     private readonly IConnection _connection;
@@ -29,12 +32,14 @@ public class JobController : ControllerBase
     }
 
     [HttpGet("health")]
+    [AllowAnonymous]
     public IActionResult Health()
     {
         return Ok(new { Status = "Healthy", Timestamp = DateTime.UtcNow });
     }
 
     [HttpPost("notify-update")]
+    [AllowAnonymous]
     public async Task<IActionResult> NotifyJobUpdate([FromBody] JobUpdateNotification notification)
     {
         try
@@ -56,7 +61,22 @@ public class JobController : ControllerBase
     {
         try
         {
-            var jobs = await _dbContext.Jobs
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (userIdClaim == null || !Guid.TryParse(userIdClaim, out var userId))
+            {
+                return Unauthorized();
+            }
+
+            var isAdmin = User.IsInRole("Admin");
+            var query = _dbContext.Jobs.AsQueryable();
+
+            // Admin sees all jobs, users see only their own
+            if (!isAdmin)
+            {
+                query = query.Where(j => j.UserId == userId);
+            }
+
+            var jobs = await query
                 .OrderByDescending(j => j.CreatedAt)
                 .Take(100)
                 .Select(j => new
@@ -66,7 +86,8 @@ public class JobController : ControllerBase
                     j.ProcessedText,
                     j.Status,
                     j.CreatedAt,
-                    j.ProcessedAt
+                    j.ProcessedAt,
+                    j.UserId
                 })
                 .ToListAsync();
 
@@ -89,12 +110,19 @@ public class JobController : ControllerBase
 
         try
         {
+            var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (userIdClaim == null || !Guid.TryParse(userIdClaim, out var userId))
+            {
+                return Unauthorized();
+            }
+
             var job = new Job
             {
                 Id = Guid.NewGuid(),
                 Text = request.Text,
                 Status = JobStatus.Pending,
-                CreatedAt = DateTime.UtcNow
+                CreatedAt = DateTime.UtcNow,
+                UserId = userId
             };
 
             // Save to database

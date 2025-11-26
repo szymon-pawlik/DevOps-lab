@@ -2,8 +2,12 @@ using RabbitMQ.Client;
 using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
 using ProducerAPI.Data;
 using ProducerAPI.Hubs;
+using ProducerAPI.Models;
+using BCrypt.Net;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -14,6 +18,28 @@ builder.Services.AddSwaggerGen();
 
 // Add SignalR
 builder.Services.AddSignalR();
+
+// Add JWT Authentication
+var jwtKey = builder.Configuration["Jwt:Key"] ?? "YourSuperSecretKeyThatShouldBeAtLeast32CharactersLong!";
+var jwtIssuer = builder.Configuration["Jwt:Issuer"] ?? "DevOpsLab";
+var jwtAudience = builder.Configuration["Jwt:Audience"] ?? "DevOpsLab";
+
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = jwtIssuer,
+            ValidAudience = jwtAudience,
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey))
+        };
+    });
+
+builder.Services.AddAuthorization();
 
 // Add CORS
 builder.Services.AddCors(options =>
@@ -61,15 +87,32 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors();
 app.UseHttpsRedirection();
+app.UseAuthentication();
 app.UseAuthorization();
 app.MapControllers();
 app.MapHub<JobHub>("/jobhub");
 
-// Ensure database is created
+// Ensure database is created and seed admin user
 using (var scope = app.Services.CreateScope())
 {
     var dbContext = scope.ServiceProvider.GetRequiredService<JobDbContext>();
     dbContext.Database.EnsureCreated();
+    
+    // Seed admin user if it doesn't exist
+    if (!dbContext.Users.Any(u => u.Username == "admin"))
+    {
+        var adminUser = new User
+        {
+            Username = "admin",
+            Email = "admin@example.com",
+            PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin123!"),
+            Role = UserRole.Admin,
+            CreatedAt = DateTime.UtcNow
+        };
+        dbContext.Users.Add(adminUser);
+        dbContext.SaveChanges();
+        Console.WriteLine("Admin user created: admin / Admin123!");
+    }
 }
 
 app.Run();
