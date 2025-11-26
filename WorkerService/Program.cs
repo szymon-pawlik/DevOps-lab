@@ -828,13 +828,22 @@ static async Task<string> TranslateTextFreeAsync(string text, HttpClient transla
         // This is similar to @vitalets/google-translate-api library
         var baseUrl = "https://translate.googleapis.com/translate_a/single";
         
-        // Determine target language - try to detect if text is Polish or English
+        // Improved language detection - check for Polish characters and common Polish words
         bool likelyPolish = text.Any(c => "ąćęłńóśźżĄĆĘŁŃÓŚŹŻ".Contains(c));
+        
+        // Also check for common Polish words (even without diacritics)
+        var polishWords = new[] { "lubie", "lubię", "jestem", "mam", "nie", "tak", "placki", "ziemniaczane", "ziemniaczany" };
+        var textLower = text.ToLower();
+        if (!likelyPolish && polishWords.Any(word => textLower.Contains(word)))
+        {
+            likelyPolish = true;
+        }
+        
         string targetLang = likelyPolish ? "en" : "pl";
         string sourceLang = likelyPolish ? "pl" : "en";
 
-        // Build request URL
-        var url = $"{baseUrl}?client=gtx&sl={sourceLang}&tl={targetLang}&dt=t&q={Uri.EscapeDataString(text)}";
+        // Build request URL with auto-detection first (more reliable)
+        var url = $"{baseUrl}?client=gtx&sl=auto&tl={targetLang}&dt=t&q={Uri.EscapeDataString(text)}";
         
         var request = new HttpRequestMessage(HttpMethod.Get, url);
         request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36");
@@ -844,19 +853,18 @@ static async Task<string> TranslateTextFreeAsync(string text, HttpClient transla
 
         if (!response.IsSuccessStatusCode)
         {
-            // If rate limited (429), try with auto-detection
+            // If rate limited (429), wait a bit and retry
             if (response.StatusCode == System.Net.HttpStatusCode.TooManyRequests)
             {
-                logger.LogWarning("Rate limited, trying with auto-detection");
-                url = $"{baseUrl}?client=gtx&sl=auto&tl={targetLang}&dt=t&q={Uri.EscapeDataString(text)}";
-                request = new HttpRequestMessage(HttpMethod.Get, url);
-                request.Headers.Add("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+                logger.LogWarning("Rate limited, waiting and retrying");
+                await Task.Delay(1000);
                 response = await translateClient.SendAsync(request);
             }
 
             if (!response.IsSuccessStatusCode)
             {
-                throw new Exception($"Translation failed: {response.StatusCode}");
+                var errorMsg = $"Błąd API Google Translate: {response.StatusCode}. Spróbuj ponownie za chwilę.";
+                throw new Exception(errorMsg);
             }
         }
 
@@ -866,6 +874,7 @@ static async Task<string> TranslateTextFreeAsync(string text, HttpClient transla
         // Extract translated text from response
         // Response format: [[["translated text",...],...],...]
         string translatedText = text;
+        string detectedSourceLang = sourceLang;
         try
         {
             if (json.ValueKind == JsonValueKind.Array && json.GetArrayLength() > 0)
@@ -880,36 +889,65 @@ static async Task<string> TranslateTextFreeAsync(string text, HttpClient transla
                     }
                 }
             }
-        }
-        catch (Exception parseEx)
-        {
-            logger.LogWarning(parseEx, "Failed to parse translation response, using original text");
-            translatedText = text;
-        }
-
-        // Try to get detected source language from response
-        try
-        {
+            
+            // Get detected source language from response
             if (json.ValueKind == JsonValueKind.Array && json.GetArrayLength() > 2)
             {
                 var detectedLang = json[2].GetString();
                 if (!string.IsNullOrEmpty(detectedLang))
                 {
-                    sourceLang = detectedLang;
-                    targetLang = (detectedLang == "pl") ? "en" : "pl";
+                    detectedSourceLang = detectedLang;
                 }
             }
         }
-        catch
+        catch (Exception parseEx)
         {
-            // Keep original source/target languages
+            logger.LogWarning(parseEx, "Failed to parse translation response");
+            throw new Exception("Błąd parsowania odpowiedzi z Google Translate. Spróbuj ponownie.");
         }
 
-        return $"[Tłumaczone z {sourceLang.ToUpper()} na {targetLang.ToUpper()}] {translatedText}";
+        // Check if translation actually changed the text
+        var originalTrimmed = text.Trim();
+        var translatedTrimmed = translatedText.Trim();
+        
+        // If text didn't change, it might be because:
+        // 1. Text is already in target language
+        // 2. Google Translate couldn't translate it
+        // 3. Text is too ambiguous
+        if (originalTrimmed.Equals(translatedTrimmed, StringComparison.OrdinalIgnoreCase))
+        {
+            // Determine actual target based on detected language
+            string actualTargetLang = (detectedSourceLang == "pl") ? "en" : "pl";
+            
+            // Check if detected language matches what we expected
+            if ((detectedSourceLang == "pl" && targetLang == "en") || 
+                (detectedSourceLang == "en" && targetLang == "pl"))
+            {
+                // Language detection was correct, but translation didn't change text
+                return $"[Tłumaczone z {detectedSourceLang.ToUpper()} na {actualTargetLang.ToUpper()}] {translatedText} | [Uwaga: Google Translate zwrócił ten sam tekst. Możliwe przyczyny: tekst jest już w docelowym języku, tekst jest zbyt krótki/niejednoznaczny, lub API nie mogło przetłumaczyć.]";
+            }
+            else
+            {
+                // Language was misdetected
+                return $"[Tłumaczone z {detectedSourceLang.ToUpper()} na {actualTargetLang.ToUpper()}] {translatedText} | [Uwaga: Wykryty język ({detectedSourceLang.ToUpper()}) może być nieprawidłowy. Tekst może być już w docelowym języku lub zawierać słowa, których Google Translate nie rozpoznaje.]";
+            }
+        }
+
+        // Determine final target language based on detected source
+        string finalTargetLang = (detectedSourceLang == "pl") ? "en" : "pl";
+        
+        return $"[Tłumaczone z {detectedSourceLang.ToUpper()} na {finalTargetLang.ToUpper()}] {translatedText}";
     }
     catch (Exception ex)
     {
         logger.LogError(ex, "Error using free Google Translate");
+        
+        // Return user-friendly error message
+        if (ex.Message.Contains("Błąd"))
+        {
+            return $"[Błąd tłumaczenia] {text} | [Przyczyna: {ex.Message}]";
+        }
+        
         throw; // Re-throw to trigger fallback
     }
 }
