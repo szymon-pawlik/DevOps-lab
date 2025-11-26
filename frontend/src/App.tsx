@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
+import * as signalR from '@microsoft/signalr';
 import './App.scss';
 
 interface Job {
@@ -20,6 +21,8 @@ function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
+  const [wsConnected, setWsConnected] = useState(false);
+  const connectionRef = useRef<signalR.HubConnection | null>(null);
 
   const checkApiStatus = async () => {
     try {
@@ -52,7 +55,7 @@ function App() {
       });
 
       setText('');
-      // Refresh jobs list after a short delay
+      // Jobs will be updated via SignalR, but fetch once to be sure
       setTimeout(fetchJobs, 500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit job');
@@ -61,17 +64,90 @@ function App() {
     }
   };
 
+  // Setup SignalR connection
+  useEffect(() => {
+    const hubUrl = `${API_URL}/jobhub`;
+    const connection = new signalR.HubConnectionBuilder()
+      .withUrl(hubUrl)
+      .withAutomaticReconnect()
+      .build();
+
+    connectionRef.current = connection;
+
+    connection.on('JobCreated', (job: { id: string; text: string; status: number; createdAt: string }) => {
+      console.log('JobCreated received:', job);
+      if (!job || !job.id) {
+        console.error('Invalid job data received:', job);
+        return;
+      }
+      setJobs(prev => {
+        // Check if job already exists
+        const exists = prev.find(j => j.id === job.id);
+        if (exists) {
+          console.log('Job already exists, skipping:', job.id);
+          return prev;
+        }
+        const newJob = {
+          id: job.id || '',
+          text: job.text || '',
+          status: job.status ?? 0,
+          createdAt: job.createdAt || new Date().toISOString()
+        };
+        console.log('Adding new job:', newJob);
+        return [newJob, ...prev];
+      });
+    });
+
+    connection.on('JobUpdated', (update: { id: string; status: number; processedText?: string; processedAt?: string }) => {
+      console.log('JobUpdated received:', update);
+      if (!update || !update.id) {
+        console.error('Invalid update data received:', update);
+        return;
+      }
+      setJobs(prev => {
+        console.log('Updating jobs, current jobs:', prev);
+        const updated = prev.map(job => 
+          job && job.id === update.id 
+            ? { ...job, status: update.status ?? job.status, processedText: update.processedText, processedAt: update.processedAt }
+            : job
+        ).filter(job => job !== null && job !== undefined);
+        console.log('Updated jobs:', updated);
+        return updated;
+      });
+    });
+
+    connection.start()
+      .then(() => {
+        setWsConnected(true);
+        console.log('SignalR connected');
+      })
+      .catch(err => {
+        console.error('SignalR connection error:', err);
+        setWsConnected(false);
+      });
+
+    connection.onreconnecting(() => {
+      setWsConnected(false);
+    });
+
+    connection.onreconnected(() => {
+      setWsConnected(true);
+    });
+
+    return () => {
+      connection.stop();
+    };
+  }, []);
+
   // Check API status and fetch jobs on mount
   useEffect(() => {
     checkApiStatus();
     fetchJobs();
     
     const statusInterval = setInterval(checkApiStatus, 30000); // Check every 30s
-    const jobsInterval = setInterval(fetchJobs, 2000); // Refresh jobs every 2s
     
     return () => {
       clearInterval(statusInterval);
-      clearInterval(jobsInterval);
     };
   }, []);
 
@@ -79,9 +155,15 @@ function App() {
     <div className="app">
       <header className="header">
         <h1>Producer-Consumer System</h1>
-        <div className={`status ${apiStatus}`}>
-          <span className="status-dot"></span>
-          <span>API: {apiStatus === 'online' ? 'Online' : apiStatus === 'offline' ? 'Offline' : 'Checking...'}</span>
+        <div className="status-group">
+          <div className={`status ${apiStatus}`}>
+            <span className="status-dot"></span>
+            <span>API: {apiStatus === 'online' ? 'Online' : apiStatus === 'offline' ? 'Offline' : 'Checking...'}</span>
+          </div>
+          <div className={`status ${wsConnected ? 'online' : 'offline'}`}>
+            <span className="status-dot"></span>
+            <span>WebSocket: {wsConnected ? 'Connected' : 'Disconnected'}</span>
+          </div>
         </div>
       </header>
 
@@ -117,35 +199,38 @@ function App() {
             <div className="empty-state">No jobs submitted yet</div>
           ) : (
             <div className="jobs-list">
-              {jobs.map((job) => (
-                <div key={job.id} className={`job-card ${job.status}`}>
-                  <div className="job-header">
-                    <span className="job-id">{job.id.substring(0, 8)}...</span>
-                    <span className={`job-status status-${job.status}`}>
-                      {job.status === 0 ? 'pending' : job.status === 1 ? 'processing' : job.status === 2 ? 'completed' : 'failed'}
-                    </span>
-                  </div>
-                  <div className="job-content">
-                    <div className="job-text">
-                      <strong>Original:</strong> {job.text}
+              {jobs.map((job) => {
+                if (!job || !job.id) return null;
+                return (
+                  <div key={job.id} className={`job-card ${job.status}`}>
+                    <div className="job-header">
+                      <span className="job-id">{job.id?.substring ? job.id.substring(0, 8) : job.id}...</span>
+                      <span className={`job-status status-${job.status}`}>
+                        {job.status === 0 ? 'pending' : job.status === 1 ? 'processing' : job.status === 2 ? 'completed' : 'failed'}
+                      </span>
                     </div>
-                    {job.status === 2 && job.processedText && (
-                      <div className="job-result">
-                        <strong>Processed:</strong> {job.processedText}
+                    <div className="job-content">
+                      <div className="job-text">
+                        <strong>Original:</strong> {job.text || 'N/A'}
                       </div>
-                    )}
-                    {job.status === 3 && (
-                      <div className="job-result error">
-                        <strong>Error:</strong> Job processing failed
+                      {job.status === 2 && job.processedText && (
+                        <div className="job-result">
+                          <strong>Processed:</strong> {job.processedText}
+                        </div>
+                      )}
+                      {job.status === 3 && (
+                        <div className="job-result error">
+                          <strong>Error:</strong> Job processing failed
+                        </div>
+                      )}
+                      <div className="job-time">
+                        {job.createdAt ? new Date(job.createdAt).toLocaleString() : 'N/A'}
+                        {job.processedAt && ` • Processed: ${new Date(job.processedAt).toLocaleString()}`}
                       </div>
-                    )}
-                    <div className="job-time">
-                      {new Date(job.createdAt).toLocaleString()}
-                      {job.processedAt && ` • Processed: ${new Date(job.processedAt).toLocaleString()}`}
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>

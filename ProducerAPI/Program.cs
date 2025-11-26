@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using ProducerAPI.Data;
+using ProducerAPI.Hubs;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -11,14 +12,18 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+// Add SignalR
+builder.Services.AddSignalR();
+
 // Add CORS
 builder.Services.AddCors(options =>
 {
     options.AddDefaultPolicy(policy =>
     {
-        policy.AllowAnyOrigin()
+        policy.WithOrigins("http://localhost:3000", "http://localhost:8080")
               .AllowAnyMethod()
-              .AllowAnyHeader();
+              .AllowAnyHeader()
+              .AllowCredentials(); // Required for SignalR
     });
 });
 
@@ -58,6 +63,7 @@ app.UseCors();
 app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
+app.MapHub<JobHub>("/jobhub");
 
 // Ensure database is created
 using (var scope = app.Services.CreateScope())

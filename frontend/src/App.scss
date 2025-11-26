@@ -87,6 +87,12 @@ body {
     background-clip: text;
   }
 
+  .status-group {
+    display: flex;
+    gap: $spacing;
+    flex-wrap: wrap;
+  }
+
   .status {
     display: flex;
     align-items: center;

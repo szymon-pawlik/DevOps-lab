@@ -68,11 +68,14 @@ services:
       - RabbitMQ__Username=guest
       - RabbitMQ__Password=guest
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=jobdb;Username=postgres;Password=postgres
+      - ApiUrl=http://producer-api:8080
     depends_on:
       postgres:
         condition: service_healthy
       rabbitmq:
         condition: service_healthy
+      producer-api:
+        condition: service_started
     networks:
       - app-network
 

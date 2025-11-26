@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using WorkerService.Data;
 using WorkerService.Models;
+using System.Net.Http.Json;
 
 var configuration = new ConfigurationBuilder()
     .SetBasePath(Directory.GetCurrentDirectory())
@@ -26,6 +27,14 @@ var rabbitMQPassword = configuration["RabbitMQ:Password"] ?? "guest";
 var queueName = "job_queue";
 var connectionString = configuration.GetConnectionString("DefaultConnection") 
     ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+var apiUrl = configuration["ApiUrl"] ?? "http://producer-api:8080";
+
+// Setup HttpClient for SignalR notifications
+var httpClient = new HttpClient
+{
+    BaseAddress = new Uri(apiUrl),
+    Timeout = TimeSpan.FromSeconds(30)
+};
 
 // Setup DbContext
 var services = new ServiceCollection();
@@ -103,6 +112,24 @@ try
                     job.Status = JobStatus.Processing;
                     await dbContext.SaveChangesAsync();
                     
+                    // Notify via SignalR (through API)
+                    try
+                    {
+                        logger.LogInformation($"Sending SignalR notification for Processing status: {job.Id}");
+                        var response = await httpClient.PostAsJsonAsync("/api/job/notify-update", new
+                        {
+                            Id = job.Id.ToString(),
+                            Status = (int)JobStatus.Processing,
+                            ProcessedText = (string?)null,
+                            ProcessedAt = (DateTime?)null
+                        });
+                        logger.LogInformation($"SignalR notification sent for Processing. Status: {response.StatusCode}");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, $"Failed to send SignalR notification for processing status: {job.Id}");
+                    }
+                    
                     logger.LogInformation($"Processing job {job.Id}: {job.Text}");
                     
                     // Simulate processing work
@@ -116,6 +143,24 @@ try
                     job.ProcessedText = processedText;
                     job.ProcessedAt = DateTime.UtcNow;
                     await dbContext.SaveChangesAsync();
+                    
+                    // Notify via SignalR (through API)
+                    try
+                    {
+                        logger.LogInformation($"Sending SignalR notification for Completed status: {job.Id}");
+                        var response = await httpClient.PostAsJsonAsync("/api/job/notify-update", new
+                        {
+                            Id = job.Id.ToString(),
+                            Status = (int)JobStatus.Completed,
+                            ProcessedText = processedText,
+                            ProcessedAt = job.ProcessedAt
+                        });
+                        logger.LogInformation($"SignalR notification sent for Completed. Status: {response.StatusCode}");
+                    }
+                    catch (Exception ex)
+                    {
+                        logger.LogError(ex, $"Failed to send SignalR notification for completed status: {job.Id}");
+                    }
                     
                     logger.LogInformation($"Job {job.Id} completed. Processed text: {processedText}");
                 }
@@ -138,6 +183,19 @@ try
                     {
                         job.Status = JobStatus.Failed;
                         await dbContext.SaveChangesAsync();
+                        
+                        // Notify via SignalR (through API)
+                        try
+                        {
+                            await httpClient.PostAsJsonAsync("/api/job/notify-update", new
+                            {
+                                Id = job.Id.ToString(),
+                                Status = (int)JobStatus.Failed,
+                                ProcessedText = (string?)null,
+                                ProcessedAt = (DateTime?)null
+                            });
+                        }
+                        catch { }
                     }
                 }
             }
