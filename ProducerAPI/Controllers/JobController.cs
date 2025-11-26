@@ -1,7 +1,10 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using RabbitMQ.Client;
 using System.Text;
 using System.Text.Json;
+using ProducerAPI.Data;
+using ProducerAPI.Models;
 
 namespace ProducerAPI.Controllers;
 
@@ -10,12 +13,14 @@ namespace ProducerAPI.Controllers;
 public class JobController : ControllerBase
 {
     private readonly IConnection _connection;
+    private readonly JobDbContext _dbContext;
     private readonly ILogger<JobController> _logger;
     private const string QueueName = "job_queue";
 
-    public JobController(IConnection connection, ILogger<JobController> logger)
+    public JobController(IConnection connection, JobDbContext dbContext, ILogger<JobController> logger)
     {
         _connection = connection;
+        _dbContext = dbContext;
         _logger = logger;
     }
 
@@ -25,8 +30,36 @@ public class JobController : ControllerBase
         return Ok(new { Status = "Healthy", Timestamp = DateTime.UtcNow });
     }
 
+    [HttpGet]
+    public async Task<IActionResult> GetJobs()
+    {
+        try
+        {
+            var jobs = await _dbContext.Jobs
+                .OrderByDescending(j => j.CreatedAt)
+                .Take(100)
+                .Select(j => new
+                {
+                    j.Id,
+                    j.Text,
+                    j.ProcessedText,
+                    j.Status,
+                    j.CreatedAt,
+                    j.ProcessedAt
+                })
+                .ToListAsync();
+
+            return Ok(jobs);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error retrieving jobs");
+            return StatusCode(500, "Internal server error");
+        }
+    }
+
     [HttpPost]
-    public IActionResult CreateJob([FromBody] JobRequest request)
+    public async Task<IActionResult> CreateJob([FromBody] JobRequest request)
     {
         if (string.IsNullOrEmpty(request?.Text))
         {
@@ -35,17 +68,28 @@ public class JobController : ControllerBase
 
         try
         {
-            using var channel = _connection.CreateModel();
-            channel.QueueDeclare(queue: QueueName, durable: false, exclusive: false, autoDelete: false, arguments: null);
-
-            var job = new
+            var job = new Job
             {
-                Id = Guid.NewGuid().ToString(),
+                Id = Guid.NewGuid(),
                 Text = request.Text,
+                Status = JobStatus.Pending,
                 CreatedAt = DateTime.UtcNow
             };
 
-            var message = JsonSerializer.Serialize(job);
+            // Save to database
+            _dbContext.Jobs.Add(job);
+            await _dbContext.SaveChangesAsync();
+
+            // Send to RabbitMQ
+            using var channel = _connection.CreateModel();
+            channel.QueueDeclare(queue: QueueName, durable: false, exclusive: false, autoDelete: false, arguments: null);
+
+            var message = JsonSerializer.Serialize(new
+            {
+                Id = job.Id.ToString(),
+                Text = job.Text,
+                CreatedAt = job.CreatedAt
+            });
             var body = Encoding.UTF8.GetBytes(message);
 
             channel.BasicPublish(exchange: "", routingKey: QueueName, basicProperties: null, body: body);

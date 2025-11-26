@@ -5,6 +5,10 @@ using System.Text.Json;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using WorkerService.Data;
+using WorkerService.Models;
 
 var configuration = new ConfigurationBuilder()
     .SetBasePath(Directory.GetCurrentDirectory())
@@ -20,6 +24,14 @@ var rabbitMQPort = configuration.GetValue<int>("RabbitMQ:Port", 5672);
 var rabbitMQUsername = configuration["RabbitMQ:Username"] ?? "guest";
 var rabbitMQPassword = configuration["RabbitMQ:Password"] ?? "guest";
 var queueName = "job_queue";
+var connectionString = configuration.GetConnectionString("DefaultConnection") 
+    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+
+// Setup DbContext
+var services = new ServiceCollection();
+services.AddDbContext<JobDbContext>(options =>
+    options.UseNpgsql(connectionString));
+var serviceProvider = services.BuildServiceProvider();
 
 logger.LogInformation($"Connecting to RabbitMQ at {rabbitMQHost}:{rabbitMQPort}");
 
@@ -71,30 +83,65 @@ try
     channel.QueueDeclare(queue: queueName, durable: false, exclusive: false, autoDelete: false, arguments: null);
 
     var consumer = new EventingBasicConsumer(channel);
-    consumer.Received += (model, ea) =>
+    consumer.Received += async (model, ea) =>
     {
         var body = ea.Body.ToArray();
         var message = Encoding.UTF8.GetString(body);
         
         try
         {
-            var job = JsonSerializer.Deserialize<JobMessage>(message);
-            if (job != null)
+            var jobMessage = JsonSerializer.Deserialize<JobMessage>(message);
+            if (jobMessage != null && Guid.TryParse(jobMessage.Id, out var jobId))
             {
-                logger.LogInformation($"Processing job {job.Id}: {job.Text}");
+                using var scope = serviceProvider.CreateScope();
+                var dbContext = scope.ServiceProvider.GetRequiredService<JobDbContext>();
                 
-                // Simulate processing work
-                Thread.Sleep(2000);
-                
-                // Process text (convert to uppercase)
-                var processedText = job.Text.ToUpper();
-                
-                logger.LogInformation($"Job {job.Id} completed. Processed text: {processedText}");
+                var job = await dbContext.Jobs.FindAsync(jobId);
+                if (job != null)
+                {
+                    // Update status to Processing
+                    job.Status = JobStatus.Processing;
+                    await dbContext.SaveChangesAsync();
+                    
+                    logger.LogInformation($"Processing job {job.Id}: {job.Text}");
+                    
+                    // Simulate processing work
+                    await Task.Delay(2000);
+                    
+                    // Process text (convert to uppercase)
+                    var processedText = job.Text.ToUpper();
+                    
+                    // Update job in database
+                    job.Status = JobStatus.Completed;
+                    job.ProcessedText = processedText;
+                    job.ProcessedAt = DateTime.UtcNow;
+                    await dbContext.SaveChangesAsync();
+                    
+                    logger.LogInformation($"Job {job.Id} completed. Processed text: {processedText}");
+                }
             }
         }
         catch (Exception ex)
         {
             logger.LogError(ex, $"Error processing job: {message}");
+            
+            // Try to mark job as failed
+            try
+            {
+                var jobMessage = JsonSerializer.Deserialize<JobMessage>(message);
+                if (jobMessage != null && Guid.TryParse(jobMessage.Id, out var jobId))
+                {
+                    using var scope = serviceProvider.CreateScope();
+                    var dbContext = scope.ServiceProvider.GetRequiredService<JobDbContext>();
+                    var job = await dbContext.Jobs.FindAsync(jobId);
+                    if (job != null)
+                    {
+                        job.Status = JobStatus.Failed;
+                        await dbContext.SaveChangesAsync();
+                    }
+                }
+            }
+            catch { }
         }
         
         channel.BasicAck(deliveryTag: ea.DeliveryTag, multiple: false);

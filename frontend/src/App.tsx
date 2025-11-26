@@ -5,8 +5,10 @@ import './App.scss';
 interface Job {
   id: string;
   text: string;
+  processedText?: string;
+  status: number; // 0=Pending, 1=Processing, 2=Completed, 3=Failed
   createdAt: string;
-  status: 'pending' | 'processing' | 'completed';
+  processedAt?: string;
 }
 
 // API URL - in browser always use localhost (ports are mapped in docker-compose)
@@ -28,6 +30,15 @@ function App() {
     }
   };
 
+  const fetchJobs = async () => {
+    try {
+      const response = await axios.get<Job[]>(`${API_URL}/api/job`);
+      setJobs(response.data);
+    } catch (err) {
+      console.error('Failed to fetch jobs:', err);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!text.trim()) return;
@@ -36,32 +47,13 @@ function App() {
     setError(null);
 
     try {
-      const response = await axios.post(`${API_URL}/api/job`, {
+      await axios.post(`${API_URL}/api/job`, {
         text: text.trim()
       });
 
-      const newJob: Job = {
-        id: response.data.jobId,
-        text: text.trim(),
-        createdAt: new Date().toISOString(),
-        status: 'pending'
-      };
-
-      setJobs(prev => [newJob, ...prev]);
       setText('');
-
-      // Simulate job processing status updates
-      setTimeout(() => {
-        setJobs(prev => prev.map(job => 
-          job.id === newJob.id ? { ...job, status: 'processing' } : job
-        ));
-      }, 1000);
-
-      setTimeout(() => {
-        setJobs(prev => prev.map(job => 
-          job.id === newJob.id ? { ...job, status: 'completed' } : job
-        ));
-      }, 3000);
+      // Refresh jobs list after a short delay
+      setTimeout(fetchJobs, 500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to submit job');
     } finally {
@@ -69,11 +61,18 @@ function App() {
     }
   };
 
-  // Check API status on mount
+  // Check API status and fetch jobs on mount
   useEffect(() => {
     checkApiStatus();
-    const interval = setInterval(checkApiStatus, 30000); // Check every 30s
-    return () => clearInterval(interval);
+    fetchJobs();
+    
+    const statusInterval = setInterval(checkApiStatus, 30000); // Check every 30s
+    const jobsInterval = setInterval(fetchJobs, 2000); // Refresh jobs every 2s
+    
+    return () => {
+      clearInterval(statusInterval);
+      clearInterval(jobsInterval);
+    };
   }, []);
 
   return (
@@ -122,21 +121,27 @@ function App() {
                 <div key={job.id} className={`job-card ${job.status}`}>
                   <div className="job-header">
                     <span className="job-id">{job.id.substring(0, 8)}...</span>
-                    <span className={`job-status ${job.status}`}>
-                      {job.status}
+                    <span className={`job-status status-${job.status}`}>
+                      {job.status === 0 ? 'pending' : job.status === 1 ? 'processing' : job.status === 2 ? 'completed' : 'failed'}
                     </span>
                   </div>
                   <div className="job-content">
                     <div className="job-text">
                       <strong>Original:</strong> {job.text}
                     </div>
-                    {job.status === 'completed' && (
+                    {job.status === 2 && job.processedText && (
                       <div className="job-result">
-                        <strong>Processed:</strong> {job.text.toUpperCase()}
+                        <strong>Processed:</strong> {job.processedText}
+                      </div>
+                    )}
+                    {job.status === 3 && (
+                      <div className="job-result error">
+                        <strong>Error:</strong> Job processing failed
                       </div>
                     )}
                     <div className="job-time">
                       {new Date(job.createdAt).toLocaleString()}
+                      {job.processedAt && ` • Processed: ${new Date(job.processedAt).toLocaleString()}`}
                     </div>
                   </div>
                 </div>

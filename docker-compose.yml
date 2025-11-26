@@ -1,4 +1,23 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_DB: jobdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - app-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   rabbitmq:
     image: rabbitmq:3-management
     container_name: rabbitmq
@@ -29,7 +48,10 @@ services:
       - RabbitMQ__Port=5672
       - RabbitMQ__Username=guest
       - RabbitMQ__Password=guest
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=jobdb;Username=postgres;Password=postgres
     depends_on:
+      postgres:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     networks:
@@ -45,7 +67,10 @@ services:
       - RabbitMQ__Port=5672
       - RabbitMQ__Username=guest
       - RabbitMQ__Password=guest
+      - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=jobdb;Username=postgres;Password=postgres
     depends_on:
+      postgres:
+        condition: service_healthy
       rabbitmq:
         condition: service_healthy
     networks:
@@ -66,4 +91,7 @@ services:
 networks:
   app-network:
     driver: bridge
+
+volumes:
+  postgres-data:
 

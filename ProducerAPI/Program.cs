@@ -1,6 +1,8 @@
 using RabbitMQ.Client;
 using System.Text;
 using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using ProducerAPI.Data;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -37,6 +39,12 @@ var factory = new ConnectionFactory()
 builder.Services.AddSingleton<IConnectionFactory>(factory);
 builder.Services.AddSingleton<IConnection>(sp => sp.GetRequiredService<IConnectionFactory>().CreateConnection());
 
+// Add Entity Framework
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection") 
+    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+builder.Services.AddDbContext<JobDbContext>(options =>
+    options.UseNpgsql(connectionString));
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
@@ -50,6 +58,13 @@ app.UseCors();
 app.UseHttpsRedirection();
 app.UseAuthorization();
 app.MapControllers();
+
+// Ensure database is created
+using (var scope = app.Services.CreateScope())
+{
+    var dbContext = scope.ServiceProvider.GetRequiredService<JobDbContext>();
+    dbContext.Database.EnsureCreated();
+}
 
 app.Run();
 
