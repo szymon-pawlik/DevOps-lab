@@ -25,7 +25,7 @@ RUN apt-get update && \
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=publish /app/publish .
-EXPOSE 8080
-ENV ASPNETCORE_URLS=http://+:8080
+EXPOSE 80
+ENV ASPNETCORE_URLS=http://+:80
 ENTRYPOINT ["dotnet", "ProducerAPI.dll"]
 

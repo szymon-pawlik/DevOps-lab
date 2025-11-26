@@ -45,8 +45,10 @@ services:
       dockerfile: ProducerAPI/Dockerfile
     container_name: producer-api
     restart: unless-stopped
+    expose:
+      - "80"
     ports:
-      - "8080:8080"
+      - "8080:80"
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - RabbitMQ__Host=rabbitmq
@@ -62,7 +64,7 @@ services:
     networks:
       - app-network
     healthcheck:
-      test: ["CMD-SHELL", "curl -f http://localhost:8080/api/job/health || exit 1"]
+      test: ["CMD-SHELL", "curl -f http://localhost:80/api/job/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -80,7 +82,7 @@ services:
       - RabbitMQ__Username=guest
       - RabbitMQ__Password=guest
       - ConnectionStrings__DefaultConnection=Host=postgres;Port=5432;Database=jobdb;Username=postgres;Password=postgres
-      - ApiUrl=http://producer-api:8080
+      - ApiUrl=http://producer-api:80
       - GoogleTranslate__ApiKey=${GOOGLE_TRANSLATE_API_KEY:-}
     depends_on:
       postgres:

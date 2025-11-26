@@ -19,7 +19,7 @@ data:
   # API Configuration
   API_URL: "http://producer-api:80"
   ASPNETCORE_ENVIRONMENT: "Production"
-  ASPNETCORE_URLS: "http://+:8080"
+  ASPNETCORE_URLS: "http://+:80"
   
   # Google Translate API (optional - leave empty to use fallback translation)
   GOOGLE_TRANSLATE_API_KEY: ""

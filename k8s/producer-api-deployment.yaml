@@ -19,7 +19,7 @@ spec:
         image: producer-api:latest
         imagePullPolicy: Never
         ports:
-        - containerPort: 8080
+        - containerPort: 80
           name: http
         env:
         # ConfigMap values
@@ -74,13 +74,13 @@ spec:
         livenessProbe:
           httpGet:
             path: /api/job/health
-            port: 8080
+            port: 80
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:
             path: /api/job/health
-            port: 8080
+            port: 80
           initialDelaySeconds: 10
           periodSeconds: 5
 
@@ -95,7 +95,7 @@ spec:
   type: ClusterIP
   ports:
   - port: 80
-    targetPort: 8080
+    targetPort: 80
     protocol: TCP
     name: http
   selector:
