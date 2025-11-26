@@ -88,14 +88,19 @@ try
         throw new Exception("Failed to create channel");
     }
 
-    // Define all queues for different job types
+    // Define all queues for different job types (including priority queues)
     var queues = new[]
     {
         ("job_queue_uppercase", JobType.Uppercase),
+        ("job_queue_uppercase_priority", JobType.Uppercase),
         ("job_queue_lowercase", JobType.Lowercase),
+        ("job_queue_lowercase_priority", JobType.Lowercase),
         ("job_queue_reverse", JobType.Reverse),
+        ("job_queue_reverse_priority", JobType.Reverse),
         ("job_queue_countwords", JobType.CountWords),
-        ("job_queue_translate", JobType.Translate)
+        ("job_queue_countwords_priority", JobType.CountWords),
+        ("job_queue_translate", JobType.Translate),
+        ("job_queue_translate_priority", JobType.Translate)
     };
 
     // Declare all queues and set up consumers
@@ -142,17 +147,40 @@ try
                             logger.LogError(ex, $"Failed to send SignalR notification for processing status: {job.Id}");
                         }
                         
-                        logger.LogInformation($"Processing job {job.Id} (Type: {jobType}): {job.Text}");
+                        logger.LogInformation($"Processing job {job.Id} (Type: {jobType}, Priority: {job.Priority}): {job.Text}");
                         
-                        // Simulate processing work
-                        await Task.Delay(2000);
+                        // Simulate processing work (less delay for high priority)
+                        var delay = job.Priority == JobPriority.Critical ? 500 : 
+                                   job.Priority == JobPriority.High ? 1000 : 2000;
+                        await Task.Delay(delay);
                         
-                        // Process text based on job type
-                        string processedText = ProcessJob(job.Text, jobType);
+                        // Process text or file based on job type
+                        string processedText;
+                        byte[]? processedFileData = null;
+                        string? processedFileName = null;
+                        
+                        if (job.FileData != null && !string.IsNullOrEmpty(job.OriginalFileName))
+                        {
+                            // Process file
+                            var result = ProcessFile(job.FileData, job.OriginalFileName, jobType);
+                            processedText = result.Text;
+                            processedFileData = result.FileData;
+                            processedFileName = result.FileName;
+                        }
+                        else
+                        {
+                            // Process text
+                            processedText = ProcessJob(job.Text, jobType);
+                        }
                         
                         // Update job in database
                         job.Status = JobStatus.Completed;
                         job.ProcessedText = processedText;
+                        if (processedFileData != null)
+                        {
+                            job.ProcessedFileData = processedFileData;
+                            job.ProcessedFileName = processedFileName;
+                        }
                         job.ProcessedAt = DateTime.UtcNow;
                         await dbContext.SaveChangesAsync();
                         
@@ -253,6 +281,7 @@ finally
     connection?.Close();
 }
 
+// Helper methods and classes - must be after top-level statements
 static string ProcessJob(string text, JobType jobType)
 {
     return jobType switch
@@ -354,20 +383,49 @@ static string TranslateText(string text)
     return $"[Tłumaczone z {sourceLang} na {targetLang}] {result}";
 }
 
+static FileProcessResult ProcessFile(byte[] fileData, string fileName, JobType jobType)
+{
+    // For text files, process the content
+    if (fileName.EndsWith(".txt", StringComparison.OrdinalIgnoreCase) ||
+        fileName.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+    {
+        var text = Encoding.UTF8.GetString(fileData);
+        var processedText = ProcessJob(text, jobType);
+        var processedBytes = Encoding.UTF8.GetBytes(processedText);
+        
+        return new FileProcessResult
+        {
+            Text = processedText,
+            FileData = processedBytes,
+            FileName = $"processed_{fileName}"
+        };
+    }
+    
+    // For other files, just return text representation
+    return new FileProcessResult
+    {
+        Text = $"File processed: {fileName}",
+        FileData = fileData, // Return original for now
+        FileName = $"processed_{fileName}"
+    };
+}
+
 public class JobMessage
 {
     public string Id { get; set; } = string.Empty;
     public string Text { get; set; } = string.Empty;
-    public int Type { get; set; }
+    public JobType Type { get; set; }
+    public JobPriority Priority { get; set; } = JobPriority.Normal;
     public DateTime CreatedAt { get; set; }
+    public string UserId { get; set; } = string.Empty;
+    public bool HasFile { get; set; }
+    public string? FileName { get; set; }
 }
 
-public enum JobType
+public class FileProcessResult
 {
-    Uppercase = 0,
-    Lowercase = 1,
-    Reverse = 2,
-    CountWords = 3,
-    Translate = 4
+    public string Text { get; set; } = string.Empty;
+    public byte[]? FileData { get; set; }
+    public string? FileName { get; set; }
 }
 

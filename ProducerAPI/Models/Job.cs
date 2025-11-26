@@ -7,10 +7,19 @@ public class Job
     public string ProcessedText { get; set; } = string.Empty;
     public JobStatus Status { get; set; }
     public JobType Type { get; set; } = JobType.Uppercase;
+    public JobPriority Priority { get; set; } = JobPriority.Normal;
     public DateTime CreatedAt { get; set; }
     public DateTime? ProcessedAt { get; set; }
     public Guid UserId { get; set; }
     public User? User { get; set; }
+    
+    // File support
+    public string? OriginalFileName { get; set; }
+    public string? ProcessedFileName { get; set; }
+    public string? FileContentType { get; set; }
+    public long? FileSize { get; set; }
+    public byte[]? FileData { get; set; } // Store file content in database
+    public byte[]? ProcessedFileData { get; set; }
 }
 
 public enum JobStatus
@@ -28,5 +37,13 @@ public enum JobType
     Reverse = 2,
     CountWords = 3,
     Translate = 4
+}
+
+public enum JobPriority
+{
+    Low = 0,
+    Normal = 1,
+    High = 2,
+    Critical = 3
 }
 

@@ -187,6 +187,86 @@ body {
     font-size: 1.5rem;
     color: $text-primary;
   }
+
+  .section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: $spacing * 1.5;
+    flex-wrap: wrap;
+    gap: $spacing;
+
+    .action-buttons {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+  }
+}
+
+// Statistics panel
+.statistics-panel {
+  margin-bottom: $spacing * 2;
+  padding: $spacing * 1.5;
+  background: rgba($primary-color, 0.05);
+  border: 1px solid rgba($primary-color, 0.2);
+  border-radius: $border-radius;
+
+  h3 {
+    margin-bottom: $spacing;
+    color: $text-primary;
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+    gap: $spacing;
+
+    .stat-card {
+      padding: $spacing;
+      background: $bg-dark;
+      border: 1px solid $border-color;
+      border-radius: $border-radius;
+      text-align: center;
+
+      .stat-value {
+        font-size: 2rem;
+        font-weight: 700;
+        color: $primary-color;
+        margin-bottom: 0.5rem;
+      }
+
+      .stat-label {
+        font-size: 0.875rem;
+        color: $text-secondary;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+    }
+  }
+}
+
+// Secondary button
+.btn-secondary {
+  padding: 0.5rem 1rem;
+  background: rgba($primary-color, 0.1);
+  border: 1px solid $primary-color;
+  border-radius: $border-radius;
+  color: $primary-color;
+  font-size: 0.875rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+
+  &:hover:not(:disabled) {
+    background: rgba($primary-color, 0.2);
+    transform: translateY(-1px);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
 }
 
 // Form
@@ -206,7 +286,8 @@ body {
     }
 
     textarea,
-    .job-type-select {
+    select,
+    input[type="file"] {
       padding: $spacing;
       background: $bg-dark;
       border: 1px solid $border-color;
@@ -235,8 +316,44 @@ body {
       }
     }
 
-    .job-type-select {
+    select {
       cursor: pointer;
+    }
+
+    input[type="file"] {
+      cursor: pointer;
+      padding: 0.5rem;
+    }
+
+    .file-info {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.5rem;
+      background: rgba($primary-color, 0.1);
+      border-radius: $border-radius;
+      margin-top: 0.5rem;
+
+      .file-size {
+        color: $text-secondary;
+        font-size: 0.875rem;
+      }
+
+      .btn-remove-file {
+        margin-left: auto;
+        padding: 0.25rem 0.75rem;
+        background: rgba($error-color, 0.2);
+        border: 1px solid $error-color;
+        border-radius: $border-radius / 2;
+        color: $error-color;
+        font-size: 0.875rem;
+        cursor: pointer;
+        transition: all 0.3s ease;
+
+        &:hover {
+          background: rgba($error-color, 0.3);
+        }
+      }
     }
   }
 
@@ -316,6 +433,15 @@ body {
       text-transform: uppercase;
     }
 
+    .job-priority-badge {
+      padding: 0.25rem 0.75rem;
+      border-radius: $border-radius / 2;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      color: white;
+    }
+
     .job-id {
       font-family: 'Courier New', monospace;
       font-size: 0.875rem;
@@ -389,10 +515,45 @@ body {
       }
     }
 
+    .job-file-info {
+      padding: 0.5rem;
+      background: rgba($primary-color, 0.1);
+      border-radius: $border-radius / 2;
+      font-size: 0.875rem;
+      color: $text-secondary;
+
+      strong {
+        color: $text-primary;
+      }
+    }
+
     .job-time {
       font-size: 0.875rem;
       color: $text-secondary;
       margin-top: 0.5rem;
+    }
+
+    .job-actions {
+      margin-top: 0.5rem;
+      padding-top: 0.75rem;
+      border-top: 1px solid $border-color;
+
+      .btn-download {
+        padding: 0.5rem 1rem;
+        background: rgba($success-color, 0.1);
+        border: 1px solid $success-color;
+        border-radius: $border-radius / 2;
+        color: $success-color;
+        font-size: 0.875rem;
+        font-weight: 600;
+        cursor: pointer;
+        transition: all 0.3s ease;
+
+        &:hover {
+          background: rgba($success-color, 0.2);
+          transform: translateY(-1px);
+        }
+      }
     }
   }
 }

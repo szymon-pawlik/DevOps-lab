@@ -17,8 +17,8 @@ public class JobDbContext : DbContext
         modelBuilder.Entity<Job>(entity =>
         {
             entity.HasKey(e => e.Id);
-            entity.Property(e => e.Text).IsRequired().HasMaxLength(1000);
-            entity.Property(e => e.ProcessedText).HasMaxLength(1000);
+            entity.Property(e => e.Text).IsRequired().HasColumnType("text"); // Unlimited text for file content
+            entity.Property(e => e.ProcessedText).HasColumnType("text"); // Unlimited text for processed results
             entity.Property(e => e.Status).IsRequired();
             entity.Property(e => e.CreatedAt).IsRequired();
             entity.HasIndex(e => e.CreatedAt);
