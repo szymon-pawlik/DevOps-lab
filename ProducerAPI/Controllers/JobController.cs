@@ -21,7 +21,18 @@ public class JobController : ControllerBase
     private readonly JobDbContext _dbContext;
     private readonly IHubContext<JobHub> _hubContext;
     private readonly ILogger<JobController> _logger;
-    private const string QueueName = "job_queue";
+    private static string GetQueueName(JobType jobType)
+    {
+        return jobType switch
+        {
+            JobType.Uppercase => "job_queue_uppercase",
+            JobType.Lowercase => "job_queue_lowercase",
+            JobType.Reverse => "job_queue_reverse",
+            JobType.CountWords => "job_queue_countwords",
+            JobType.Translate => "job_queue_translate",
+            _ => "job_queue_default"
+        };
+    }
 
     public JobController(IConnection connection, JobDbContext dbContext, IHubContext<JobHub> hubContext, ILogger<JobController> logger)
     {
@@ -85,6 +96,7 @@ public class JobController : ControllerBase
                     j.Text,
                     j.ProcessedText,
                     j.Status,
+                    j.Type,
                     j.CreatedAt,
                     j.ProcessedAt,
                     j.UserId
@@ -113,14 +125,24 @@ public class JobController : ControllerBase
             var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
             if (userIdClaim == null || !Guid.TryParse(userIdClaim, out var userId))
             {
-                return Unauthorized();
+                return Unauthorized("User ID not found in token");
             }
 
+            // Verify user exists in database
+            var userExists = await _dbContext.Users.AnyAsync(u => u.Id == userId);
+            if (!userExists)
+            {
+                _logger.LogWarning($"User {userId} from token does not exist in database");
+                return Unauthorized("User not found");
+            }
+
+            var jobType = request.Type ?? JobType.Uppercase;
             var job = new Job
             {
                 Id = Guid.NewGuid(),
                 Text = request.Text,
                 Status = JobStatus.Pending,
+                Type = jobType,
                 CreatedAt = DateTime.UtcNow,
                 UserId = userId
             };
@@ -129,27 +151,30 @@ public class JobController : ControllerBase
             _dbContext.Jobs.Add(job);
             await _dbContext.SaveChangesAsync();
 
-            // Send to RabbitMQ
+            // Send to RabbitMQ - use different queue for different job types
+            var queueName = GetQueueName(jobType);
             using var channel = _connection.CreateModel();
-            channel.QueueDeclare(queue: QueueName, durable: false, exclusive: false, autoDelete: false, arguments: null);
+            channel.QueueDeclare(queue: queueName, durable: false, exclusive: false, autoDelete: false, arguments: null);
 
             var message = JsonSerializer.Serialize(new
             {
                 Id = job.Id.ToString(),
                 Text = job.Text,
+                Type = (int)job.Type,
                 CreatedAt = job.CreatedAt
             });
             var body = Encoding.UTF8.GetBytes(message);
 
-            channel.BasicPublish(exchange: "", routingKey: QueueName, basicProperties: null, body: body);
+            channel.BasicPublish(exchange: "", routingKey: queueName, basicProperties: null, body: body);
 
-            _logger.LogInformation($"Job created: {job.Id} with text: {request.Text}");
+            _logger.LogInformation($"Job created: {job.Id} with type: {jobType}, text: {request.Text}");
 
             // Notify clients via SignalR
             await _hubContext.Clients.All.SendAsync("JobCreated", new
             {
                 Id = job.Id.ToString(),
                 Text = job.Text,
+                Type = (int)job.Type,
                 Status = (int)job.Status,
                 CreatedAt = job.CreatedAt
             });
@@ -167,6 +192,7 @@ public class JobController : ControllerBase
 public class JobRequest
 {
     public string Text { get; set; } = string.Empty;
+    public JobType? Type { get; set; }
 }
 
 public class JobUpdateNotification

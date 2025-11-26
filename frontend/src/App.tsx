@@ -10,9 +10,20 @@ interface Job {
   text: string;
   processedText?: string;
   status: number; // 0=Pending, 1=Processing, 2=Completed, 3=Failed
+  type?: number; // 0=Uppercase, 1=Lowercase, 2=Reverse, 3=CountWords, 4=Translate
   createdAt: string;
   processedAt?: string;
 }
+
+type JobType = 'uppercase' | 'lowercase' | 'reverse' | 'countwords' | 'translate';
+
+const JOB_TYPES: { value: number; label: string; type: JobType }[] = [
+  { value: 0, label: 'Uppercase', type: 'uppercase' },
+  { value: 1, label: 'Lowercase', type: 'lowercase' },
+  { value: 2, label: 'Reverse', type: 'reverse' },
+  { value: 3, label: 'Count Words', type: 'countwords' },
+  { value: 4, label: 'Translate', type: 'translate' }
+];
 
 // API URL - in browser always use localhost (ports are mapped in docker-compose)
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
@@ -29,9 +40,19 @@ axios.interceptors.request.use((config) => {
 axios.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
-      authService.clearAuth();
-      window.location.reload();
+    if (error.response?.status === 401 || error.response?.status === 500) {
+      // If 500 error with "User not found" or foreign key constraint, it might be token issue
+      const errorMessage = error.response?.data?.toString().toLowerCase() || '';
+      if (error.response?.status === 500 && (errorMessage.includes('user not found') || errorMessage.includes('foreign key'))) {
+        console.warn('Token may be invalid, clearing auth...');
+        authService.clearAuth();
+        window.location.reload();
+        return Promise.reject(error);
+      }
+      if (error.response?.status === 401) {
+        authService.clearAuth();
+        window.location.reload();
+      }
     }
     return Promise.reject(error);
   }
@@ -40,12 +61,60 @@ axios.interceptors.response.use(
 function App() {
   const [user, setUser] = useState<User | null>(authService.getUser());
   const [text, setText] = useState('');
+  const [jobType, setJobType] = useState<number>(0); // Default to Uppercase
   const [jobs, setJobs] = useState<Job[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [wsConnected, setWsConnected] = useState(false);
   const connectionRef = useRef<signalR.HubConnection | null>(null);
+
+  const formatTranslatedText = (text: string) => {
+    // Parse [UNTRANSLATED:word] markers and [Brak możliwości tłumaczenia: ...] section
+    const parts: (string | React.ReactElement)[] = [];
+    let currentIndex = 0;
+    
+    // Find untranslated words markers
+    const untranslatedRegex = /\[UNTRANSLATED:([^\]]+)\]/g;
+    let match;
+    const untranslatedWords: string[] = [];
+    
+    while ((match = untranslatedRegex.exec(text)) !== null) {
+      const before = text.substring(currentIndex, match.index);
+      if (before) {
+        parts.push(before);
+      }
+      parts.push(
+        <span key={match.index} className="untranslated-word">
+          {match[1]}
+        </span>
+      );
+      untranslatedWords.push(match[1]);
+      currentIndex = match.index + match[0].length;
+    }
+    
+    if (currentIndex < text.length) {
+      const remaining = text.substring(currentIndex);
+      // Remove the "| [Brak możliwości tłumaczenia: ...]" part if it exists
+      const untranslatedSectionRegex = /\s*\|\s*\[Brak możliwości tłumaczenia:[^\]]+\]/;
+      const cleaned = remaining.replace(untranslatedSectionRegex, '');
+      if (cleaned) {
+        parts.push(cleaned);
+      }
+    }
+    
+    // Add warning about untranslated words if any
+    if (untranslatedWords.length > 0) {
+      const uniqueWords = [...new Set(untranslatedWords)];
+      parts.push(
+        <span key="warning" className="translation-warning">
+          {' '}(Brak możliwości tłumaczenia: {uniqueWords.join(', ')})
+        </span>
+      );
+    }
+    
+    return parts.length > 0 ? <>{parts}</> : text;
+  };
 
   const checkApiStatus = useCallback(async () => {
     try {
@@ -104,7 +173,8 @@ function App() {
       console.log('Job text:', jobText);
       
       const response = await axios.post(`${API_URL}/api/job`, {
-        text: jobText.trim()
+        text: jobText.trim(),
+        type: jobType
       });
 
       console.log('Job submitted successfully:', response.data);
@@ -141,7 +211,7 @@ function App() {
 
     connectionRef.current = connection;
 
-    connection.on('JobCreated', (job: { id: string; text: string; status: number; createdAt: string }) => {
+    connection.on('JobCreated', (job: { id: string; text: string; type?: number; status: number; createdAt: string }) => {
       if (!isMounted) return;
       console.log('JobCreated received:', job);
       if (!job || !job.id) {
@@ -155,12 +225,13 @@ function App() {
           console.log('Job already exists, skipping:', job.id);
           return prev;
         }
-        const newJob = {
-          id: job.id || '',
-          text: job.text || '',
-          status: job.status ?? 0,
-          createdAt: job.createdAt || new Date().toISOString()
-        };
+                  const newJob = {
+                    id: job.id || '',
+                    text: job.text || '',
+                    type: job.type ?? 0,
+                    status: job.status ?? 0,
+                    createdAt: job.createdAt || new Date().toISOString()
+                  };
         console.log('Adding new job:', newJob);
         return [newJob, ...prev];
       });
@@ -272,12 +343,28 @@ function App() {
           <h2>Submit New Job</h2>
           <form onSubmit={handleSubmit} className="job-form">
             <div className="form-group">
+              <label htmlFor="job-type">Job Type:</label>
+              <select
+                id="job-type"
+                value={jobType}
+                onChange={(e) => setJobType(Number(e.target.value))}
+                disabled={loading || apiStatus === 'offline'}
+                className="job-type-select"
+              >
+                {JOB_TYPES.map((type) => (
+                  <option key={type.value} value={type.value}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group">
               <label htmlFor="job-text">Text to Process:</label>
               <textarea
                 id="job-text"
                 value={text}
                 onChange={(e) => setText(e.target.value)}
-                placeholder="Enter text to process (will be converted to uppercase)..."
+                placeholder={`Enter text to process (will be ${JOB_TYPES.find(t => t.value === jobType)?.label.toLowerCase() || 'processed'})...`}
                 rows={4}
                 disabled={loading || apiStatus === 'offline'}
               />
@@ -302,20 +389,30 @@ function App() {
               {jobs.map((job) => {
                 if (!job || !job.id) return null;
                 return (
-                  <div key={job.id} className={`job-card ${job.status}`}>
-                    <div className="job-header">
-                      <span className="job-id">{job.id?.substring ? job.id.substring(0, 8) : job.id}...</span>
-                      <span className={`job-status status-${job.status}`}>
-                        {job.status === 0 ? 'pending' : job.status === 1 ? 'processing' : job.status === 2 ? 'completed' : 'failed'}
-                      </span>
-                    </div>
+                          <div key={job.id} className={`job-card ${job.status}`}>
+                            <div className="job-header">
+                              <span className="job-id">{job.id?.substring ? job.id.substring(0, 8) : job.id}...</span>
+                              <span className="job-type-badge">
+                                {JOB_TYPES.find(t => t.value === (job.type ?? 0))?.label || 'Unknown'}
+                              </span>
+                              <span className={`job-status status-${job.status}`}>
+                                {job.status === 0 ? 'pending' : job.status === 1 ? 'processing' : job.status === 2 ? 'completed' : 'failed'}
+                              </span>
+                            </div>
                     <div className="job-content">
                       <div className="job-text">
                         <strong>Original:</strong> {job.text || 'N/A'}
                       </div>
                       {job.status === 2 && job.processedText && (
                         <div className="job-result">
-                          <strong>Processed:</strong> {job.processedText}
+                          <strong>Processed:</strong>{' '}
+                          {job.type === 4 ? (
+                            <span className="translated-text">
+                              {formatTranslatedText(job.processedText)}
+                            </span>
+                          ) : (
+                            job.processedText
+                          )}
                         </div>
                       )}
                       {job.status === 3 && (
