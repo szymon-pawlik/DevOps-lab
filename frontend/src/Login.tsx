@@ -3,7 +3,8 @@ import axios from 'axios';
 import { authService, type User } from './auth';
 import './Login.scss';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+// API URL - use relative path, nginx will proxy to Producer API
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 interface LoginProps {
   onLogin: (user: User) => void;

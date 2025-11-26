@@ -37,8 +37,18 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
+    - name: Build Frontend Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./frontend
+        file: ./frontend/Dockerfile
+        push: false
+        tags: frontend:test
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
     - name: Verify Docker images
       run: |
-        docker images | grep -E "(producer-api|worker-service)"
+        docker images | grep -E "(producer-api|worker-service|frontend)"
         echo "Docker images built successfully!"
 

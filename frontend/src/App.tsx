@@ -25,8 +25,8 @@ const JOB_TYPES: { value: number; label: string; type: JobType }[] = [
   { value: 4, label: 'Translate', type: 'translate' }
 ];
 
-// API URL - in browser always use localhost (ports are mapped in docker-compose)
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080';
+// API URL - use relative path, nginx will proxy to Producer API
+const API_URL = import.meta.env.VITE_API_URL || '';
 
 // Configure axios to include JWT token
 axios.interceptors.request.use((config) => {
@@ -141,9 +141,13 @@ function App() {
   }, [user]);
 
   const handleLogout = useCallback(() => {
-    // Stop SignalR connection
+    // Stop SignalR connection properly
     if (connectionRef.current) {
-      connectionRef.current.stop().catch(console.error);
+      connectionRef.current.stop().then(() => {
+        console.log('SignalR connection stopped');
+      }).catch((err) => {
+        console.error('Error stopping SignalR:', err);
+      });
       connectionRef.current = null;
     }
     
@@ -197,16 +201,41 @@ function App() {
 
   // Setup SignalR connection
   useEffect(() => {
-    if (!user) return;
+    if (!user) {
+      // Ensure connection is stopped when user logs out
+      if (connectionRef.current) {
+        const conn = connectionRef.current;
+        connectionRef.current = null; // Clear reference first
+        conn.stop().then(() => {
+          console.log('SignalR connection stopped on logout');
+        }).catch((err) => {
+          console.error('Error stopping SignalR on logout:', err);
+        });
+      }
+      return;
+    }
 
     let isMounted = true;
-    const hubUrl = `${API_URL}/jobhub`;
+    // Use relative path - nginx will proxy to Producer API
+    // If API_URL is empty, use relative path (works with nginx proxy)
+    const hubUrl = API_URL ? `${API_URL}/jobhub` : '/jobhub';
     const token = authService.getToken();
+    
+    console.log('Setting up SignalR connection to:', hubUrl);
+    
     const connection = new signalR.HubConnectionBuilder()
       .withUrl(hubUrl, {
-        accessTokenFactory: () => token || ''
+        accessTokenFactory: () => token || '',
+        transport: signalR.HttpTransportType.LongPolling // Use Long Polling for port-forward compatibility
       })
-      .withAutomaticReconnect()
+      .withAutomaticReconnect({
+        nextRetryDelayInMilliseconds: (retryContext) => {
+          if (retryContext.elapsedMilliseconds < 60000) {
+            return 2000; // Retry after 2 seconds for first minute
+          }
+          return 10000; // Then retry every 10 seconds
+        }
+      })
       .build();
 
     connectionRef.current = connection;
@@ -284,9 +313,15 @@ function App() {
 
     return () => {
       isMounted = false;
+      // Cleanup: stop connection when component unmounts or user changes
       if (connectionRef.current) {
-        connectionRef.current.stop().catch(console.error);
-        connectionRef.current = null;
+        const conn = connectionRef.current;
+        connectionRef.current = null; // Clear reference first to prevent reconnection attempts
+        conn.stop().then(() => {
+          console.log('SignalR connection cleaned up');
+        }).catch((err) => {
+          console.error('Error during SignalR cleanup:', err);
+        });
       }
     };
   }, [user]);

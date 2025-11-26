@@ -17,7 +17,7 @@ data:
   POSTGRES_USER: "postgres"
   
   # API Configuration
-  API_URL: "http://producer-api:8080"
+  API_URL: "http://producer-api:80"
   ASPNETCORE_ENVIRONMENT: "Production"
   ASPNETCORE_URLS: "http://+:8080"
   

@@ -54,3 +54,8 @@ frontend/.env.local
 frontend/.vite/
 frontend/*.log
 
+
+# Kubernetes binaries
+kubectl
+minikube-linux-amd64
+k8s/.port-forward.*
