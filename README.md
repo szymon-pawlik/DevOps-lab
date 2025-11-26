@@ -268,69 +268,6 @@ Skrypt sprawdza:
 
 System używa Google Translate do tłumaczenia tekstów między językami angielskim i polskim. Tłumaczenie działa automatycznie - system wykrywa język źródłowy i tłumaczy tekst w odpowiednią stronę.
 
-## Rozwiązywanie problemów
-
-### Problem: Kontenery nie startują
-
-```bash
-# Sprawdź logi
-docker compose logs
-
-# Sprawdź status
-docker compose ps
-
-# Zrestartuj wszystko
-docker compose down
-docker compose up -d --build
-```
-
-### Problem: Błąd połączenia z bazą danych
-
-```bash
-# Sprawdź czy PostgreSQL działa
-docker compose ps postgres
-
-# Sprawdź logi
-docker compose logs postgres
-
-# Zresetuj bazę danych
-docker compose down -v
-docker compose up -d
-```
-
-### Problem: SignalR nie działa
-
-- Sprawdź czy używasz Long Polling (działa przez port forwarding)
-- Sprawdź logi Producer API: `docker compose logs producer-api`
-- Sprawdź logi frontendu w konsoli przeglądarki (F12)
-
-### Problem: Kubernetes - pody nie startują
-
-```bash
-# Sprawdź status podów
-kubectl get pods
-
-# Sprawdź szczegóły
-kubectl describe pod <pod-name>
-
-# Sprawdź logi
-kubectl logs <pod-name>
-
-# Sprawdź events
-kubectl get events --sort-by='.lastTimestamp'
-```
-
-### Problem: Minikube tunnel nie działa
-
-```bash
-# Sprawdź czy tunnel działa
-ps aux | grep "minikube tunnel"
-
-# Uruchom ponownie
-pkill -f "minikube tunnel"
-minikube tunnel
-```
-
 ## Struktura projektu
 
 ```
@@ -378,13 +315,6 @@ Workflows uruchamiają się automatycznie przy commit/merge do brancha Master.
 - **Frontend**: React 18, TypeScript, Vite, SASS
 - **Authentication**: JWT
 - **Real-time**: SignalR (Long Polling)
-
-## Wsparcie
-
-W przypadku problemów:
-1. Sprawdź logi: `docker compose logs` lub `kubectl logs`
-2. Sprawdź status serwisów: `docker compose ps` lub `kubectl get pods`
-3. Sprawdź dokumentację w `k8s/README_DEPLOY.md`
 
 ## Licencja
 
