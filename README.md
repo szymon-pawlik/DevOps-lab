@@ -13,10 +13,46 @@ System przetwarzania tekstów oparty na wzorcu Producer-Consumer z wykorzystanie
 
 ## Wymagania wstępne
 
-- Docker i Docker Compose
+- Docker i Docker Compose (wersja 2.0+)
 - .NET 8.0 SDK (opcjonalnie, do lokalnego rozwoju)
 - Node.js 20+ (opcjonalnie, do lokalnego rozwoju frontendu)
 - Minikube i kubectl (dla Kubernetes)
+
+### Sprawdzenie instalacji Docker
+
+Przed uruchomieniem projektu upewnij się, że Docker jest zainstalowany i działa:
+
+```bash
+# Sprawdź wersję Docker
+docker --version
+
+# Sprawdź wersję Docker Compose
+docker compose version
+
+# Sprawdź czy Docker daemon działa
+docker ps
+
+# Jeśli powyższe komendy nie działają, zainstaluj Docker:
+# Windows/Mac: https://www.docker.com/products/docker-desktop
+# Linux: https://docs.docker.com/engine/install/
+```
+
+### Sprawdzenie dostępności portów
+
+Upewnij się, że następujące porty są wolne:
+- 3000 (frontend)
+- 8080 (producer-api)
+- 5432 (postgres)
+- 5672 (rabbitmq)
+- 15672 (rabbitmq management)
+
+```bash
+# Linux/Mac: sprawdź czy porty są wolne
+netstat -tuln | grep -E ':(3000|8080|5432|5672|15672)'
+
+# Windows PowerShell:
+netstat -ano | findstr "3000 8080 5432 5672 15672"
+```
 
 ## Szybki start z Docker Compose
 
@@ -30,13 +66,46 @@ cd DevOps-lab
 ### 2. Uruchom wszystkie serwisy
 
 ```bash
+# Uruchom wszystkie serwisy w tle z budowaniem obrazów
 docker compose up -d --build
+
+# Jeśli używasz starszej wersji Docker Compose (v1), użyj:
+# docker-compose up -d --build
 ```
+
+**Uwaga**: Pierwsze uruchomienie może zająć kilka minut, ponieważ Docker pobierze wszystkie obrazy bazowe i zbuduje aplikacje.
 
 ### 3. Sprawdź status
 
 ```bash
+# Sprawdź status wszystkich kontenerów
 docker compose ps
+
+# Sprawdź logi wszystkich serwisów
+docker compose logs
+
+# Sprawdź logi konkretnego serwisu
+docker compose logs producer-api
+docker compose logs worker-service
+docker compose logs frontend
+docker compose logs postgres
+docker compose logs rabbitmq
+
+# Sprawdź czy wszystkie kontenery są zdrowe
+docker compose ps | grep -E "(Up|healthy)"
+```
+
+Jeśli któryś z kontenerów nie działa:
+
+```bash
+# Zatrzymaj wszystkie kontenery
+docker compose down
+
+# Usuń stare obrazy i zbuduj od nowa
+docker compose build --no-cache
+
+# Uruchom ponownie
+docker compose up -d
 ```
 
 ### 4. Dostęp do aplikacji
